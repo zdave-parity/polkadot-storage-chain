@@ -29,23 +29,13 @@ mod mock;
 mod tests;
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::{
-	dispatch::{Dispatchable, GetDispatchInfo},
-	traits::{Currency, OnUnbalanced, ReservableCurrency},
-};
+use frame_support::dispatch::{Dispatchable, GetDispatchInfo};
 use sp_runtime::traits::{BlakeTwo256, Hash, One, Saturating, Zero};
 use sp_std::{prelude::*, result};
 use sp_transaction_storage_proof::{
 	encode_index, random_chunk, InherentError, TransactionStorageProof, CHUNK_SIZE,
 	INHERENT_IDENTIFIER,
 };
-
-/// A type alias for the balance type from this pallet's point of view.
-type BalanceOf<T> =
-	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-type NegativeImbalanceOf<T> = <<T as Config>::Currency as Currency<
-	<T as frame_system::Config>::AccountId,
->>::NegativeImbalance;
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
@@ -98,10 +88,6 @@ pub mod pallet {
 			+ Dispatchable<RuntimeOrigin = Self::RuntimeOrigin>
 			+ GetDispatchInfo
 			+ From<frame_system::Call<Self>>;
-		/// The currency trait.
-		type Currency: ReservableCurrency<Self::AccountId>;
-		/// Handler for the unbalanced decrease when fees are burned.
-		type FeeDestination: OnUnbalanced<NegativeImbalanceOf<Self>>;
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 		/// Maximum number of indexed transactions in the block.
@@ -112,10 +98,6 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Insufficient account balance.
-		InsufficientFunds,
-		/// Invalid configuration.
-		NotConfigured,
 		/// Renewed extrinsic is not found.
 		RenewedNotFound,
 		/// Attempting to store empty transaction
@@ -352,16 +334,6 @@ pub mod pallet {
 	pub(super) type ChunkCount<T: Config> =
 		StorageMap<_, Blake2_128Concat, BlockNumberFor<T>, u32, ValueQuery>;
 
-	#[pallet::storage]
-	#[pallet::getter(fn byte_fee)]
-	/// Storage fee per byte.
-	pub(super) type ByteFee<T: Config> = StorageValue<_, BalanceOf<T>>;
-
-	#[pallet::storage]
-	#[pallet::getter(fn entry_fee)]
-	/// Storage fee per transaction.
-	pub(super) type EntryFee<T: Config> = StorageValue<_, BalanceOf<T>>;
-
 	/// Storage period for data in blocks. Should match `sp_storage_proof::DEFAULT_STORAGE_PERIOD`
 	/// for block authoring.
 	#[pallet::storage]
@@ -378,16 +350,12 @@ pub mod pallet {
 
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config> {
-		pub byte_fee: BalanceOf<T>,
-		pub entry_fee: BalanceOf<T>,
 		pub storage_period: BlockNumberFor<T>,
 	}
 
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
 			Self {
-				byte_fee: 10u32.into(),
-				entry_fee: 1000u32.into(),
 				storage_period: sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD.into(),
 			}
 		}
@@ -396,8 +364,6 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			<ByteFee<T>>::put(&self.byte_fee);
-			<EntryFee<T>>::put(&self.entry_fee);
 			<StoragePeriod<T>>::put(&self.storage_period);
 		}
 	}
@@ -429,12 +395,7 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T> {
 		fn apply_fee(sender: T::AccountId, size: u32) -> DispatchResult {
-			let byte_fee = ByteFee::<T>::get().ok_or(Error::<T>::NotConfigured)?;
-			let entry_fee = EntryFee::<T>::get().ok_or(Error::<T>::NotConfigured)?;
-			let fee = byte_fee.saturating_mul(size.into()).saturating_add(entry_fee);
-			ensure!(T::Currency::can_slash(&sender, fee), Error::<T>::InsufficientFunds);
-			let (credit, _) = T::Currency::slash(&sender, fee);
-			T::FeeDestination::on_unbalanced(credit);
+			// TODO
 			Ok(())
 		}
 	}
