@@ -106,14 +106,10 @@ pub mod pallet {
 		UnexpectedProof,
 		/// Proof failed verification.
 		InvalidProof,
-		/// Missing storage proof.
-		MissingProof,
 		/// Unable to verify proof becasue state data is missing.
 		MissingStateData,
 		/// Double proof check in the block.
 		DoubleCheck,
-		/// Storage proof was not checked in the block.
-		ProofNotChecked,
 		/// Transaction is too large.
 		TransactionTooLarge,
 		/// Too many transactions in the block.
