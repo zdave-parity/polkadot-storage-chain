@@ -4467,6 +4467,7 @@ dependencies = [
  "pallet-grandpa",
  "pallet-sudo",
  "pallet-timestamp",
+ "pallet-transaction-storage",
  "parity-scale-codec",
  "scale-info",
  "sp-api",
@@ -4480,6 +4481,7 @@ dependencies = [
  "sp-session",
  "sp-std",
  "sp-transaction-pool",
+ "sp-transaction-storage-proof",
  "sp-version",
  "substrate-wasm-builder",
 ]
@@ -4782,6 +4784,26 @@ dependencies = [
  "sp-runtime",
  "sp-std",
  "sp-timestamp",
+]
+
+[[package]]
+name = "pallet-transaction-storage"
+version = "4.0.0-dev"
+dependencies = [
+ "array-bytes",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-inherents",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+ "sp-transaction-storage-proof",
 ]
 
 [[package]]
