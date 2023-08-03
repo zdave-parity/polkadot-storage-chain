@@ -30,7 +30,7 @@ mod tests;
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::dispatch::{Dispatchable, GetDispatchInfo};
-use sp_runtime::traits::{BlakeTwo256, Hash, One, Saturating, Zero};
+use sp_runtime::traits::{BlakeTwo256, CheckedAdd, Hash, One, Saturating, Zero};
 use sp_std::{prelude::*, result};
 use sp_transaction_storage_proof::{
 	encode_index, random_chunk, InherentError, TransactionStorageProof, CHUNK_SIZE,
@@ -45,6 +45,42 @@ pub use weights::WeightInfo;
 // Setting higher limit also requires raising the allocator limit.
 pub const DEFAULT_MAX_TRANSACTION_SIZE: u32 = 8 * 1024 * 1024;
 pub const DEFAULT_MAX_BLOCK_TRANSACTIONS: u32 = 512;
+
+/// Authorization token counts.
+#[derive(
+	Default,
+	PartialEq,
+	Eq,
+	sp_runtime::RuntimeDebug,
+	Encode,
+	Decode,
+	scale_info::TypeInfo,
+	MaxEncodedLen,
+)]
+struct Tokens {
+	/// Number of transactions.
+	transactions: u32,
+	/// Number of bytes.
+	bytes: u64,
+}
+
+/// Data associated with an `AccountId`.
+#[derive(Default, PartialEq, Eq, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
+struct Account {
+	/// Spent token count. When a token grant expires, it will consume tokens from this pool first.
+	spent: Tokens,
+	/// Unspent token count.
+	unspent: Tokens,
+}
+
+/// Authorization token grant.
+#[derive(sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
+struct Grant<AccountId> {
+	/// Recipient of the tokens.
+	who: AccountId,
+	/// Token count.
+	amount: Tokens,
+}
 
 /// State data for a stored transaction.
 #[derive(
@@ -94,10 +130,19 @@ pub mod pallet {
 		type MaxBlockTransactions: Get<u32>;
 		/// Maximum data set in a single transaction in bytes.
 		type MaxTransactionSize: Get<u32>;
+		/// Maximum number of grant expiries per block. Grants will be extended to avoid exceeding
+		/// this limit.
+		type MaxBlockExpiries: Get<u32>;
+		/// Grants expire after this many blocks.
+		type GrantPeriod: Get<BlockNumberFor<Self>>;
 	}
 
 	#[pallet::error]
 	pub enum Error<T> {
+		/// Account has no transaction authorization tokens.
+		NoTransactionTokens,
+		/// Account has too few byte authorization tokens.
+		InsufficientByteTokens,
 		/// Renewed extrinsic is not found.
 		RenewedNotFound,
 		/// Attempting to store empty transaction
@@ -124,16 +169,26 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_initialize(n: BlockNumberFor<T>) -> Weight {
+			let mut weight = Weight::zero();
+			let db_weight = T::DbWeight::get();
+
 			// Drop obsolete roots. The proof for `obsolete` will be checked later
 			// in this block, so we drop `obsolete` - 1.
+			weight += db_weight.reads(1);
 			let period = <StoragePeriod<T>>::get();
 			let obsolete = n.saturating_sub(period.saturating_add(One::one()));
 			if obsolete > Zero::zero() {
+				weight += db_weight.writes(2);
 				<Transactions<T>>::remove(obsolete);
 				<ChunkCount<T>>::remove(obsolete);
 			}
-			// 2 writes in `on_initialize` and 2 writes + 2 reads in `on_finalize`
-			T::DbWeight::get().reads_writes(2, 4)
+
+			weight += Self::expire_grants(n);
+
+			// For `on_finalize`
+			weight += db_weight.reads_writes(2, 2);
+
+			weight
 		}
 
 		fn on_finalize(n: BlockNumberFor<T>) {
@@ -314,6 +369,28 @@ pub mod pallet {
 		ProofChecked,
 	}
 
+	/// Account data.
+	#[pallet::storage]
+	pub(super) type Accounts<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, Account, ValueQuery>;
+
+	/// Authorization token grants, keyed by expiry. Grants are _not_ removed when they are spent,
+	/// only when they expire.
+	#[pallet::storage]
+	pub(super) type Grants<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		BlockNumberFor<T>,
+		BoundedVec<Grant<T::AccountId>, T::MaxBlockExpiries>,
+		ValueQuery,
+	>;
+
+	/// Minimum expiry block for new grants, minus 1. This usually has no effect; its purpose is to
+	/// avoid overflowing the `BoundedVec`s in `Grants`.
+	#[pallet::storage]
+	pub(super) type MinGrantExpiryMinus1<T: Config> =
+		StorageValue<_, BlockNumberFor<T>, ValueQuery>;
+
 	/// Collection of transaction metadata by block number.
 	#[pallet::storage]
 	#[pallet::getter(fn transaction_roots)]
@@ -351,9 +428,7 @@ pub mod pallet {
 
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
-			Self {
-				storage_period: sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD.into(),
-			}
+			Self { storage_period: sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD.into() }
 		}
 	}
 
@@ -390,9 +465,92 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Grant authorization tokens to the specified account. Grants expire after a configured
+		/// number of blocks.
+		pub fn authorize(who: T::AccountId, transactions: u32, bytes: u64) {
+			let grant_period = T::GrantPeriod::get();
+			if grant_period.is_zero() {
+				return // Grants expire immediately
+			}
+
+			// Credit account. Note that it is possible for tokens to get lost due to the
+			// saturating arithmetic.
+			Accounts::<T>::mutate(who.clone(), |account| {
+				account.unspent.transactions =
+					account.unspent.transactions.saturating_add(transactions);
+				account.unspent.bytes = account.unspent.bytes.saturating_add(bytes);
+			});
+
+			// Determine grant expiry block
+			let Some(expiry) = frame_system::Pallet::<T>::block_number().checked_add(&grant_period)
+			else {
+				return // Grant never expires
+			};
+			let Some(min_grant_expiry) = MinGrantExpiryMinus1::<T>::get().checked_add(&1u32.into())
+			else {
+				return // Grant never expires
+			};
+			let expiry = expiry.max(min_grant_expiry);
+
+			// Record grant
+			let grant = Grant { who, amount: Tokens { transactions, bytes } };
+			Grants::<T>::mutate(expiry, |grants| {
+				grants.try_push(grant).expect(
+					"Whenever a BoundedVec becomes full, MinGrantExpiryMinus1 is bumped. \
+						MinGrantExpiryMinus1 never decreases. \
+						Thus a full BoundedVec will never be pushed to again.",
+				);
+				if grants.is_full() {
+					MinGrantExpiryMinus1::<T>::put(expiry);
+				}
+			});
+		}
+
+		fn expire_grants(block: BlockNumberFor<T>) -> Weight {
+			let mut weight = Weight::zero();
+			let db_weight = T::DbWeight::get();
+
+			weight += db_weight.reads(1);
+			for grant in Grants::<T>::take(block) {
+				weight += db_weight.reads_writes(1, 1);
+				Accounts::<T>::mutate_exists(grant.who, |account_slot| {
+					if let Some(account) = account_slot {
+						let unspent_transactions =
+							grant.amount.transactions.saturating_sub(account.spent.transactions);
+						let unspent_bytes = grant.amount.bytes.saturating_sub(account.spent.bytes);
+						account.spent.transactions =
+							account.spent.transactions.saturating_sub(grant.amount.transactions);
+						account.spent.bytes =
+							account.spent.bytes.saturating_sub(grant.amount.bytes);
+						account.unspent.transactions =
+							account.unspent.transactions.saturating_sub(unspent_transactions);
+						account.unspent.bytes = account.unspent.bytes.saturating_sub(unspent_bytes);
+						if *account == Default::default() {
+							*account_slot = None;
+						}
+					}
+				});
+			}
+
+			weight
+		}
+
 		fn apply_fee(sender: T::AccountId, size: u32) -> DispatchResult {
-			// TODO
-			Ok(())
+			Accounts::<T>::try_mutate(sender, |account| {
+				account.unspent.transactions = account
+					.unspent
+					.transactions
+					.checked_sub(1)
+					.ok_or(Error::<T>::NoTransactionTokens)?;
+				account.unspent.bytes = account
+					.unspent
+					.bytes
+					.checked_sub(size.into())
+					.ok_or(Error::<T>::InsufficientByteTokens)?;
+				account.spent.transactions = account.spent.transactions.saturating_add(1);
+				account.spent.bytes = account.spent.bytes.saturating_add(size.into());
+				Ok(())
+			})
 		}
 	}
 }
