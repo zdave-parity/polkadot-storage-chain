@@ -21,7 +21,11 @@ use crate::{
 	self as pallet_transaction_storage, TransactionStorageProof, DEFAULT_MAX_BLOCK_TRANSACTIONS,
 	DEFAULT_MAX_TRANSACTION_SIZE,
 };
-use frame_support::traits::{ConstU16, ConstU32, ConstU64, OnFinalize, OnInitialize};
+use frame_support::{
+	parameter_types,
+	traits::{ConstU16, ConstU32, ConstU64, OnFinalize, OnInitialize},
+};
+use frame_system::pallet_prelude::BlockNumberFor;
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
@@ -35,7 +39,6 @@ frame_support::construct_runtime!(
 	pub enum Test
 	{
 		System: frame_system::{Pallet, Call, Config<T>, Storage, Event<T>},
-		Balances: pallet_balances::{Pallet, Call, Config<T>, Storage, Event<T>},
 		TransactionStorage: pallet_transaction_storage::{
 			Pallet, Call, Storage, Config<T>, Inherent, Event<T>
 		},
@@ -59,7 +62,7 @@ impl frame_system::Config for Test {
 	type DbWeight = ();
 	type Version = ();
 	type PalletInfo = PalletInfo;
-	type AccountData = pallet_balances::AccountData<u64>;
+	type AccountData = ();
 	type OnNewAccount = ();
 	type OnKilledAccount = ();
 	type SystemWeightInfo = ();
@@ -68,42 +71,25 @@ impl frame_system::Config for Test {
 	type MaxConsumers = ConstU32<16>;
 }
 
-impl pallet_balances::Config for Test {
-	type Balance = u64;
-	type DustRemoval = ();
-	type RuntimeEvent = RuntimeEvent;
-	type ExistentialDeposit = ConstU64<1>;
-	type AccountStore = System;
-	type WeightInfo = ();
-	type MaxLocks = ();
-	type MaxReserves = ();
-	type ReserveIdentifier = ();
-	type FreezeIdentifier = ();
-	type MaxFreezes = ();
-	type RuntimeHoldReason = ();
-	type MaxHolds = ();
+parameter_types! {
+	pub const TransactionStorageGrantPeriod: BlockNumberFor<Test> = 10;
 }
 
 impl pallet_transaction_storage::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeCall = RuntimeCall;
-	type Currency = Balances;
-	type FeeDestination = ();
 	type WeightInfo = ();
 	type MaxBlockTransactions = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
 	type MaxTransactionSize = ConstU32<{ DEFAULT_MAX_TRANSACTION_SIZE }>;
+	type MaxBlockExpiries = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
+	type GrantPeriod = TransactionStorageGrantPeriod;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let t = RuntimeGenesisConfig {
 		system: Default::default(),
-		balances: pallet_balances::GenesisConfig::<Test> {
-			balances: vec![(1, 1000000000), (2, 100), (3, 100), (4, 100)],
-		},
 		transaction_storage: pallet_transaction_storage::GenesisConfig::<Test> {
 			storage_period: 10,
-			byte_fee: 2,
-			entry_fee: 200,
 		},
 	}
 	.build_storage()

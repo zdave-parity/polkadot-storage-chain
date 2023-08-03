@@ -30,6 +30,7 @@ fn discards_data() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
+		TransactionStorage::<Test>::authorize(caller, 2, 4000);
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; 2000 as usize]
@@ -66,18 +67,30 @@ fn burns_fee() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
+		TransactionStorage::<Test>::authorize(caller, 2, 2000);
+		assert_eq!(
+			TransactionStorage::<Test>::unspent_tokens(caller),
+			Tokens { transactions: 2, bytes: 2000 }
+		);
 		assert_noop!(
 			TransactionStorage::<Test>::store(
 				RawOrigin::Signed(5).into(),
 				vec![0u8; 2000 as usize]
 			),
-			Error::<Test>::InsufficientFunds,
+			Error::<Test>::NoTransactionTokens,
 		);
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; 2000 as usize]
 		));
-		assert_eq!(Balances::free_balance(1), 1_000_000_000 - 2000 * 2 - 200);
+		assert_eq!(
+			TransactionStorage::<Test>::unspent_tokens(caller),
+			Tokens { transactions: 1, bytes: 0 }
+		);
+		assert_noop!(
+			TransactionStorage::<Test>::store(RawOrigin::Signed(caller).into(), vec![0u8; 1]),
+			Error::<Test>::InsufficientByteTokens,
+		);
 	});
 }
 
@@ -86,6 +99,7 @@ fn checks_proof() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
+		TransactionStorage::<Test>::authorize(caller, 1, MAX_DATA_SIZE.into());
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; MAX_DATA_SIZE as usize]
@@ -118,6 +132,7 @@ fn renews_data() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
+		TransactionStorage::<Test>::authorize(caller, 4, 4009);
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; 2000]
@@ -129,7 +144,10 @@ fn renews_data() {
 			1, // block
 			0, // transaction
 		));
-		assert_eq!(Balances::free_balance(1), 1_000_000_000 - 4000 * 2 - 200 * 2);
+		assert_eq!(
+			TransactionStorage::<Test>::unspent_tokens(caller),
+			Tokens { transactions: 2, bytes: 9 },
+		);
 		let proof_provider = || {
 			let block_num = <frame_system::Pallet<Test>>::block_number();
 			if block_num == 11 || block_num == 16 {

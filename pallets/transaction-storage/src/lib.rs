@@ -57,11 +57,11 @@ pub const DEFAULT_MAX_BLOCK_TRANSACTIONS: u32 = 512;
 	scale_info::TypeInfo,
 	MaxEncodedLen,
 )]
-struct Tokens {
+pub struct Tokens {
 	/// Number of transactions.
-	transactions: u32,
+	pub transactions: u32,
 	/// Number of bytes.
-	bytes: u64,
+	pub bytes: u64,
 }
 
 /// Data associated with an `AccountId`.
@@ -504,6 +504,11 @@ pub mod pallet {
 					MinGrantExpiryMinus1::<T>::put(expiry);
 				}
 			});
+		}
+
+		/// Returns the count of unspent tokens granted to the given account.
+		pub fn unspent_tokens(who: T::AccountId) -> Tokens {
+			Accounts::<T>::get(who).unspent
 		}
 
 		fn expire_grants(block: BlockNumberFor<T>) -> Weight {
