@@ -243,8 +243,8 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 			telemetry.as_ref().map(|x| x.handle()),
 		);
 
+		let client_clone = client.clone();
 		let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
-
 		let aura = sc_consensus_aura::start_aura::<AuraPair, _, _, _, _, _, _, _, _, _, _>(
 			StartAuraParams {
 				slot_duration,
@@ -252,16 +252,25 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 				select_chain,
 				block_import,
 				proposer_factory,
-				create_inherent_data_providers: move |_, ()| async move {
-					let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+				create_inherent_data_providers: move |parent, ()| {
+					let client_clone = client_clone.clone();
+					async move {
+						let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
 
-					let slot =
-						sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-							*timestamp,
-							slot_duration,
-						);
+						let slot =
+							sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+								*timestamp,
+								slot_duration,
+							);
 
-					Ok((slot, timestamp))
+						let storage_proof =
+							sp_transaction_storage_proof::registration::new_data_provider(
+								&*client_clone,
+								&parent,
+							)?;
+
+						Ok((slot, timestamp, storage_proof))
+					}
 				},
 				force_authoring,
 				backoff_authoring_blocks,

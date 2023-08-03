@@ -4447,6 +4447,7 @@ dependencies = [
  "sp-keyring",
  "sp-runtime",
  "sp-timestamp",
+ "sp-transaction-storage-proof",
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "try-runtime-cli",

@@ -224,6 +224,24 @@ impl pallet_sudo::Config for Runtime {
 	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
+parameter_types! {
+	pub const TransactionStorageGrantPeriod: BlockNumber =
+		sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD as BlockNumber;
+}
+
+impl pallet_transaction_storage::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type WeightInfo = pallet_transaction_storage::weights::SubstrateWeight<Runtime>;
+	type MaxBlockTransactions =
+		ConstU32<{ pallet_transaction_storage::DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
+	type MaxTransactionSize =
+		ConstU32<{ pallet_transaction_storage::DEFAULT_MAX_TRANSACTION_SIZE }>;
+	type MaxBlockExpiries =
+		ConstU32<{ pallet_transaction_storage::DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
+	type GrantPeriod = TransactionStorageGrantPeriod;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub struct Runtime {
@@ -232,6 +250,7 @@ construct_runtime!(
 		Aura: pallet_aura,
 		Grandpa: pallet_grandpa,
 		Sudo: pallet_sudo,
+		TransactionStorage: pallet_transaction_storage,
 	}
 );
 
@@ -277,6 +296,7 @@ mod benches {
 		[frame_system, SystemBench::<Runtime>]
 		[pallet_timestamp, Timestamp]
 		[pallet_sudo, Sudo]
+		[pallet_transaction_storage, TransactionStorage]
 	);
 }
 
