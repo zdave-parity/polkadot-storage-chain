@@ -164,3 +164,26 @@ fn renews_data() {
 		assert!(Transactions::<Test>::get(6).is_none());
 	});
 }
+
+#[test]
+fn grant_expires() {
+	new_test_ext().execute_with(|| {
+		run_to_block(1, || None);
+		let recipient = 1;
+		TransactionStorage::<Test>::authorize(recipient, 1, 2000);
+		assert_eq!(
+			TransactionStorage::<Test>::unspent_tokens(recipient),
+			Tokens { transactions: 1, bytes: 2000 },
+		);
+		run_to_block(10, || None);
+		assert_eq!(
+			TransactionStorage::<Test>::unspent_tokens(recipient),
+			Tokens { transactions: 1, bytes: 2000 },
+		);
+		run_to_block(11, || None);
+		assert_eq!(
+			TransactionStorage::<Test>::unspent_tokens(recipient),
+			Tokens { transactions: 0, bytes: 0 },
+		);
+	});
+}
