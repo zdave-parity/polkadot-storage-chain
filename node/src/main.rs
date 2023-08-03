@@ -1,4 +1,5 @@
-//! Substrate Node Template CLI library.
+//! Polkadot Storage Chain node.
+
 #![warn(missing_docs)]
 
 mod chain_spec;

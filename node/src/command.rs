@@ -5,7 +5,7 @@ use crate::{
 	service,
 };
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
-use node_template_runtime::Block;
+use polkadot_storage_chain_runtime::Block;
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
 
@@ -14,7 +14,7 @@ use try_runtime_cli::block_building_info::timestamp_with_aura_info;
 
 impl SubstrateCli for Cli {
 	fn impl_name() -> String {
-		"Substrate Node".into()
+		"Polkadot Storage Chain Node".into()
 	}
 
 	fn impl_version() -> String {
