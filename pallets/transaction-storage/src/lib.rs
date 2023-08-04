@@ -75,7 +75,7 @@ struct AuthorizationUsage {
 }
 
 /// Preimage of a stored blob of data.
-type Preimage = [u8; 32];
+type PreimageHash = [u8; 32];
 
 /// The scope of an authorization.
 #[derive(Clone, sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
@@ -83,7 +83,7 @@ enum AuthorizationScope<AccountId> {
 	/// Authorization for the given account to store arbitrary data.
 	Account(AccountId),
 	/// Authorization for anyone to store data with a specific hash.
-	Preimage(Preimage),
+	Preimage(PreimageHash),
 }
 
 /// An authorization to store data.
@@ -174,6 +174,8 @@ pub mod pallet {
 		TooManyTransactions,
 		/// Attempted to call `store` outside of block execution.
 		BadContext,
+		/// The pallet cannot add any new authorizations.
+		TooManyAuthorizations,
 	}
 
 	#[pallet::pallet]
@@ -380,7 +382,12 @@ pub mod pallet {
 			bytes: u64,
 		) -> DispatchResult {
 			T::Authorizer::ensure_origin(origin)?;
-			Self::authorize(AuthorizationScope::Account(who), transactions, bytes);
+			Self::authorize(AuthorizationScope::Account(who.clone()), transactions, bytes)?;
+			Self::deposit_event(Event::AccountUploadAuthorized {
+				who,
+				transactions,
+				max_size: bytes,
+			});
 			Ok(())
 		}
 
@@ -390,11 +397,12 @@ pub mod pallet {
 		#[pallet::weight(1)] // TODO
 		pub fn authorize_preimage(
 			origin: OriginFor<T>,
-			preimage: Preimage,
+			hash: PreimageHash,
 			bytes: u64,
 		) -> DispatchResult {
 			T::Authorizer::ensure_origin(origin)?;
-			Self::authorize(AuthorizationScope::Preimage(preimage), 1, bytes);
+			Self::authorize(AuthorizationScope::Preimage(hash), 1, bytes)?;
+			Self::deposit_event(Event::PreimageUploadAuthorized { hash, max_size: bytes });
 			Ok(())
 		}
 	}
@@ -408,6 +416,12 @@ pub mod pallet {
 		Renewed { index: u32 },
 		/// Storage proof was successfully checked.
 		ProofChecked,
+		/// An account `who` was authorized to submit `transactions` to store up to `max_size`
+		/// bytes.
+		AccountUploadAuthorized { who: T::AccountId, transactions: u32, max_size: u64 },
+		/// The preimage matching `hash` may be uploaded by anyone. The number of preimage bytes
+		/// may not exceed `max_size`.
+		PreimageUploadAuthorized { hash: [u8; 32], max_size: u64 },
 	}
 
 	/// Authorization usage by scope.
@@ -511,10 +525,14 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		fn authorize(scope: AuthorizationScope<T::AccountId>, transactions: u32, bytes: u64) {
+		fn authorize(
+			scope: AuthorizationScope<T::AccountId>,
+			transactions: u32,
+			bytes: u64,
+		) -> DispatchResult {
 			let period = T::AuthorizationPeriod::get();
 			if period.is_zero() {
-				return // Authorizations expire immediately
+				return Ok(()) // Authorizations expire immediately
 			}
 
 			// Credit scope. Note that it is possible for authorizations to get lost due to the
@@ -527,28 +545,28 @@ pub mod pallet {
 			// Determine expiry block
 			let Some(expiry) = frame_system::Pallet::<T>::block_number().checked_add(&period)
 			else {
-				return // Authorization never expires
+				return Ok(()) // Authorization never expires
 			};
 			let Some(min_expiry) =
 				MinAuthorizationExpiryMinus1::<T>::get().checked_add(&1u32.into())
 			else {
-				return // Authorization never expires
+				return Ok(()) // Authorization never expires
 			};
 			let expiry = expiry.max(min_expiry);
 
 			// Record authorization for expire_authorizations
 			let authorization =
 				Authorization { scope, extent: AuthorizationExtent { transactions, bytes } };
-			AuthorizationsByExpiry::<T>::mutate(expiry, |authorizations| {
-				authorizations.try_push(authorization).expect(
-					"Whenever a BoundedVec becomes full, MinAuthorizationExpiryMinus1 is bumped. \
-					MinAuthorizationExpiryMinus1 never decreases. \
-					Thus a full BoundedVec will never be pushed to again.",
-				);
+
+			AuthorizationsByExpiry::<T>::mutate(expiry, |authorizations| -> DispatchResult {
+				authorizations
+					.try_push(authorization)
+					.map_err(|_| Error::<T>::TooManyAuthorizations)?;
 				if authorizations.is_full() {
 					MinAuthorizationExpiryMinus1::<T>::put(expiry);
 				}
-			});
+				Ok(())
+			})
 		}
 
 		/// Returns the unused extent of (unexpired) authorizations for the given account.
@@ -557,8 +575,8 @@ pub mod pallet {
 		}
 
 		/// Returns the unused extent of (unexpired) authorizations for the given preimage.
-		pub fn unused_preimage_authorization_extent(preimage: Preimage) -> AuthorizationExtent {
-			AuthorizationUsageByScope::<T>::get(AuthorizationScope::Preimage(preimage)).unused
+		pub fn unused_preimage_authorization_extent(hash: PreimageHash) -> AuthorizationExtent {
+			AuthorizationUsageByScope::<T>::get(AuthorizationScope::Preimage(hash)).unused
 		}
 
 		fn expire_authorizations(block: BlockNumberFor<T>) -> Weight {
@@ -597,12 +615,12 @@ pub mod pallet {
 
 		fn use_authorization(
 			origin: OriginFor<T>,
-			preimage: Preimage,
+			hash: PreimageHash,
 			size: u32,
 		) -> DispatchResult {
 			let scope = match origin.into() {
 				Ok(RawOrigin::Signed(who)) => AuthorizationScope::Account(who),
-				Ok(RawOrigin::None) => AuthorizationScope::Preimage(preimage),
+				Ok(RawOrigin::None) => AuthorizationScope::Preimage(hash),
 				_ => return Err(DispatchError::BadOrigin),
 			};
 			AuthorizationUsageByScope::<T>::try_mutate(scope, |usage| {
