@@ -1,12 +1,12 @@
 [package]
-name = "polkadot-storage-chain-runtime"
+name = "polkadot-bulletin-chain-runtime"
 version = "0.1.0-dev"
-description = "Runtime for the Polkadot Storage Chain"
+description = "Runtime for the Polkadot Bulletin Chain"
 authors = ["Parity Technologies <admin@parity.io>"]
 edition = "2021"
 license = "MIT-0"
 publish = false
-repository = "https://github.com/paritytech/polkadot-storage-chain/"
+repository = "https://github.com/paritytech/polkadot-bulletin-chain/"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

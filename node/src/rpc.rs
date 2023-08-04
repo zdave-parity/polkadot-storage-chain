@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use jsonrpsee::RpcModule;
-use polkadot_storage_chain_runtime::{opaque::Block, AccountId, Nonce};
+use polkadot_bulletin_chain_runtime::{opaque::Block, AccountId, Nonce};
 use sc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;

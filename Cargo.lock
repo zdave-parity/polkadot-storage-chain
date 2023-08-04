@@ -5028,7 +5028,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3d7ddaed09e0eb771a79ab0fd64609ba0afb0a8366421957936ad14cbd13630"
 
 [[package]]
-name = "polkadot-storage-chain"
+name = "polkadot-bulletin-chain"
 version = "0.1.0-dev"
 dependencies = [
  "clap",
@@ -5037,7 +5037,7 @@ dependencies = [
  "frame-system",
  "futures",
  "jsonrpsee",
- "polkadot-storage-chain-runtime",
+ "polkadot-bulletin-chain-runtime",
  "sc-basic-authorship",
  "sc-cli",
  "sc-client-api",
@@ -5071,7 +5071,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "polkadot-storage-chain-runtime"
+name = "polkadot-bulletin-chain-runtime"
 version = "0.1.0-dev"
 dependencies = [
  "frame-benchmarking",

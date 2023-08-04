@@ -4,7 +4,7 @@
 
 use crate::service::FullClient;
 
-use polkadot_storage_chain_runtime as runtime;
+use polkadot_bulletin_chain_runtime as runtime;
 use runtime::SystemCall;
 use sc_cli::Result;
 use sc_client_api::BlockBackend;

@@ -1,19 +1,19 @@
 [package]
-name = "polkadot-storage-chain"
+name = "polkadot-bulletin-chain"
 version = "0.1.0-dev"
-description = "Polkadot Storage Chain node"
+description = "Polkadot Bulletin Chain node"
 authors = ["Parity Technologies <admin@parity.io>"]
 edition = "2021"
 license = "MIT-0"
 publish = false
-repository = "https://github.com/paritytech/polkadot-storage-chain/"
+repository = "https://github.com/paritytech/polkadot-bulletin-chain/"
 build = "build.rs"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [[bin]]
-name = "polkadot-storage-chain"
+name = "polkadot-bulletin-chain"
 
 [dependencies]
 clap = { version = "4.2.5", features = ["derive"] }
@@ -57,7 +57,7 @@ frame-benchmarking = { version = "4.0.0-dev", git = "https://github.com/parityte
 frame-benchmarking-cli = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 
 # Local Dependencies
-polkadot-storage-chain-runtime = { version = "0.1.0-dev", path = "../runtime" }
+polkadot-bulletin-chain-runtime = { version = "0.1.0-dev", path = "../runtime" }
 
 # CLI-specific dependencies
 try-runtime-cli = { version = "0.10.0-dev", optional = true, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
@@ -69,10 +69,10 @@ substrate-build-script-utils = { version = "3.0.0", git = "https://github.com/pa
 default = []
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
-	"polkadot-storage-chain-runtime/runtime-benchmarks",
+	"polkadot-bulletin-chain-runtime/runtime-benchmarks",
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-benchmarking-cli/runtime-benchmarks",
 ]
 # Enable features that allow the runtime to be tried and debugged. Name might be subject to change
 # in the near future.
-try-runtime = ["polkadot-storage-chain-runtime/try-runtime", "try-runtime-cli/try-runtime"]
+try-runtime = ["polkadot-bulletin-chain-runtime/try-runtime", "try-runtime-cli/try-runtime"]

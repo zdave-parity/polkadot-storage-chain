@@ -1,4 +1,4 @@
-//! Polkadot Storage Chain node.
+//! Polkadot Bulletin Chain node.
 
 #![warn(missing_docs)]
 

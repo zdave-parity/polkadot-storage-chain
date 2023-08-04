@@ -1,4 +1,4 @@
-use polkadot_storage_chain_runtime::{
+use polkadot_bulletin_chain_runtime::{
 	AccountId, AuraConfig, GrandpaConfig, RuntimeGenesisConfig, Signature, SudoConfig,
 	SystemConfig, WASM_BINARY,
 };
