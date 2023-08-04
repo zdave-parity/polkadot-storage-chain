@@ -21,6 +21,7 @@ use super::{Pallet as TransactionStorage, *};
 use crate::mock::*;
 use frame_support::{assert_noop, assert_ok};
 use frame_system::RawOrigin;
+use sp_core::blake2_256;
 use sp_transaction_storage_proof::registration::build_proof;
 
 const MAX_DATA_SIZE: u32 = DEFAULT_MAX_TRANSACTION_SIZE;
@@ -97,6 +98,56 @@ fn uses_account_authorization() {
 		assert_noop!(
 			TransactionStorage::<Test>::store(RawOrigin::Signed(caller).into(), vec![0u8; 1]),
 			Error::<Test>::NotAuthorized,
+		);
+	});
+}
+
+#[test]
+fn uses_preimage_authorization() {
+	new_test_ext().execute_with(|| {
+		run_to_block(1, || None);
+		let data = vec![2; 2000];
+		let preimage = blake2_256(&data);
+		assert_ok!(TransactionStorage::<Test>::authorize_preimage(
+			RawOrigin::Root.into(),
+			preimage,
+			2002
+		));
+		assert_eq!(
+			TransactionStorage::<Test>::unused_preimage_authorization_extent(preimage),
+			AuthorizationExtent { transactions: 1, bytes: 2002 }
+		);
+		assert_noop!(
+			TransactionStorage::<Test>::store(RawOrigin::None.into(), vec![1; 2000]),
+			Error::<Test>::NotAuthorized,
+		);
+		assert_ok!(TransactionStorage::<Test>::store(RawOrigin::None.into(), data.clone()));
+		assert_eq!(
+			TransactionStorage::<Test>::unused_preimage_authorization_extent(preimage),
+			AuthorizationExtent { transactions: 0, bytes: 2 }
+		);
+		run_to_block(3, || None);
+		assert_noop!(
+			TransactionStorage::<Test>::renew(
+				RawOrigin::None.into(),
+				1, // block
+				0, // transaction
+			),
+			Error::<Test>::NotAuthorized,
+		);
+		assert_ok!(TransactionStorage::<Test>::authorize_preimage(
+			RawOrigin::Root.into(),
+			preimage,
+			2000
+		));
+		assert_ok!(TransactionStorage::<Test>::renew(
+			RawOrigin::None.into(),
+			1, // block
+			0, // transaction
+		));
+		assert_eq!(
+			TransactionStorage::<Test>::unused_preimage_authorization_extent(preimage),
+			AuthorizationExtent { transactions: 0, bytes: 2 }
 		);
 	});
 }
