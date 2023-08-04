@@ -122,7 +122,7 @@ fn num_chunks(bytes: u32) -> u32 {
 	((bytes as u64 + CHUNK_SIZE as u64 - 1) / CHUNK_SIZE as u64) as u32
 }
 
-#[frame_support::pallet]
+#[frame_support::pallet(dev_mode)]
 pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
@@ -235,7 +235,7 @@ pub mod pallet {
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::store(data.len() as u32))]
 		pub fn store(origin: OriginFor<T>, data: Vec<u8>) -> DispatchResult {
-			ensure!(data.len() > 0, Error::<T>::EmptyTransaction);
+			ensure!(!data.is_empty(), Error::<T>::EmptyTransaction);
 			ensure!(
 				data.len() <= T::MaxTransactionSize::get() as usize,
 				Error::<T>::TransactionTooLarge
@@ -481,7 +481,7 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			<StoragePeriod<T>>::put(&self.storage_period);
+			<StoragePeriod<T>>::put(self.storage_period);
 		}
 	}
 

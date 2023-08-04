@@ -38,11 +38,11 @@ fn discards_data() {
 		));
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
-			vec![0u8; 2000 as usize]
+			vec![0u8; 2000]
 		));
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
-			vec![0u8; 2000 as usize]
+			vec![0u8; 2000]
 		));
 		let proof_provider = || {
 			let block_num = <frame_system::Pallet<Test>>::block_number();
@@ -83,15 +83,12 @@ fn uses_account_authorization() {
 			AuthorizationExtent { transactions: 2, bytes: 2000 }
 		);
 		assert_noop!(
-			TransactionStorage::<Test>::store(
-				RawOrigin::Signed(5).into(),
-				vec![0u8; 2000 as usize]
-			),
+			TransactionStorage::<Test>::store(RawOrigin::Signed(5).into(), vec![0u8; 2000]),
 			Error::<Test>::NotAuthorized,
 		);
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
-			vec![0u8; 2000 as usize]
+			vec![0u8; 2000]
 		));
 		assert_eq!(
 			TransactionStorage::<Test>::unused_account_authorization_extent(caller),
