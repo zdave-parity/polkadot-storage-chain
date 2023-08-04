@@ -75,7 +75,7 @@ struct AuthorizationUsage {
 }
 
 /// Preimage of a stored blob of data.
-type Preimage = <BlakeTwo256 as Hash>::Output;
+type Preimage = [u8; 32];
 
 /// The scope of an authorization.
 #[derive(Clone, sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
@@ -242,7 +242,7 @@ pub mod pallet {
 			);
 			let content_hash = sp_io::hashing::blake2_256(&data);
 
-			Self::use_authorization(origin, content_hash.into(), data.len() as u32)?;
+			Self::use_authorization(origin, content_hash, data.len() as u32)?;
 
 			// Chunk data and compute storage root
 			let chunk_count = num_chunks(data.len() as u32);
@@ -290,7 +290,7 @@ pub mod pallet {
 			let transactions = <Transactions<T>>::get(block).ok_or(Error::<T>::RenewedNotFound)?;
 			let info = transactions.get(index as usize).ok_or(Error::<T>::RenewedNotFound)?;
 
-			Self::use_authorization(origin, info.content_hash, info.size)?;
+			Self::use_authorization(origin, info.content_hash.into(), info.size)?;
 
 			let extrinsic_index =
 				<frame_system::Pallet<T>>::extrinsic_index().ok_or(Error::<T>::BadContext)?;
