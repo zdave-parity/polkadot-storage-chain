@@ -225,20 +225,16 @@ impl pallet_sudo::Config for Runtime {
 }
 
 parameter_types! {
-	pub const TransactionStorageGrantPeriod: BlockNumber =
-		sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD as BlockNumber;
+	pub const TransactionStorageGrantPeriod: BlockNumber = 100800;
 }
 
 impl pallet_transaction_storage::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeCall = RuntimeCall;
 	type WeightInfo = pallet_transaction_storage::weights::SubstrateWeight<Runtime>;
-	type MaxBlockTransactions =
-		ConstU32<{ pallet_transaction_storage::DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
-	type MaxTransactionSize =
-		ConstU32<{ pallet_transaction_storage::DEFAULT_MAX_TRANSACTION_SIZE }>;
-	type MaxBlockExpiries =
-		ConstU32<{ pallet_transaction_storage::DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
+	type MaxBlockTransactions = ConstU32<512>;
+	type MaxTransactionSize = ConstU32<{ 8 * 1024 * 1024 }>;
+	type MaxBlockExpiries = ConstU32<512>;
 	type GrantPeriod = TransactionStorageGrantPeriod;
 }
 
