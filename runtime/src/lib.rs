@@ -225,7 +225,7 @@ impl pallet_sudo::Config for Runtime {
 }
 
 parameter_types! {
-	pub const TransactionStorageGrantPeriod: BlockNumber = 100800;
+	pub const TransactionStorageAuthorizationPeriod: BlockNumber = 100800;
 }
 
 impl pallet_transaction_storage::Config for Runtime {
@@ -234,8 +234,8 @@ impl pallet_transaction_storage::Config for Runtime {
 	type WeightInfo = pallet_transaction_storage::weights::SubstrateWeight<Runtime>;
 	type MaxBlockTransactions = ConstU32<512>;
 	type MaxTransactionSize = ConstU32<{ 8 * 1024 * 1024 }>;
-	type MaxBlockExpiries = ConstU32<512>;
-	type GrantPeriod = TransactionStorageGrantPeriod;
+	type MaxBlockAuthorizationExpiries = ConstU32<512>;
+	type AuthorizationPeriod = TransactionStorageAuthorizationPeriod;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

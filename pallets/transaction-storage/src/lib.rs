@@ -29,7 +29,7 @@ mod mock;
 mod tests;
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::dispatch::{Dispatchable, GetDispatchInfo};
+use frame_support::dispatch::{Dispatchable, GetDispatchInfo, RawOrigin};
 use sp_runtime::traits::{BlakeTwo256, CheckedAdd, Hash, One, Saturating, Zero};
 use sp_std::{prelude::*, result};
 use sp_transaction_storage_proof::{
@@ -46,7 +46,7 @@ pub use weights::WeightInfo;
 pub const DEFAULT_MAX_TRANSACTION_SIZE: u32 = 8 * 1024 * 1024;
 pub const DEFAULT_MAX_BLOCK_TRANSACTIONS: u32 = 512;
 
-/// Authorization token counts.
+/// Number of transactions and bytes covered by an authorization or authorizations.
 #[derive(
 	Default,
 	PartialEq,
@@ -57,29 +57,42 @@ pub const DEFAULT_MAX_BLOCK_TRANSACTIONS: u32 = 512;
 	scale_info::TypeInfo,
 	MaxEncodedLen,
 )]
-pub struct Tokens {
+pub struct AuthorizationExtent {
 	/// Number of transactions.
 	pub transactions: u32,
 	/// Number of bytes.
 	pub bytes: u64,
 }
 
-/// Data associated with an `AccountId`.
+/// For tracking usage of authorizations for a particular account or preimage.
 #[derive(Default, PartialEq, Eq, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
-struct Account {
-	/// Spent token count. When a token grant expires, it will consume tokens from this pool first.
-	spent: Tokens,
-	/// Unspent token count.
-	unspent: Tokens,
+struct AuthorizationUsage {
+	/// Extent of (unexpired) authorizations used. When an authorization expires, it consumes from
+	/// this pool first.
+	used: AuthorizationExtent,
+	/// Extent of authorizations not yet used.
+	unused: AuthorizationExtent,
 }
 
-/// Authorization token grant.
+/// Preimage of a stored blob of data.
+type Preimage = <BlakeTwo256 as Hash>::Output;
+
+/// The scope of an authorization.
+#[derive(Clone, sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
+enum AuthorizationScope<AccountId> {
+	/// Authorization for the given account to store arbitrary data.
+	Account(AccountId),
+	/// Authorization for anyone to store data with a specific hash.
+	Preimage(Preimage),
+}
+
+/// An authorization to store data.
 #[derive(sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
-struct Grant<AccountId> {
-	/// Recipient of the tokens.
-	who: AccountId,
-	/// Token count.
-	amount: Tokens,
+struct Authorization<AccountId> {
+	/// Scope of the authorization (account/preimage).
+	scope: AuthorizationScope<AccountId>,
+	/// Extent of the authorization (number of transactions/bytes).
+	extent: AuthorizationExtent,
 }
 
 /// State data for a stored transaction.
@@ -130,19 +143,17 @@ pub mod pallet {
 		type MaxBlockTransactions: Get<u32>;
 		/// Maximum data set in a single transaction in bytes.
 		type MaxTransactionSize: Get<u32>;
-		/// Maximum number of grant expiries per block. Grants will be extended to avoid exceeding
-		/// this limit.
-		type MaxBlockExpiries: Get<u32>;
-		/// Grants expire after this many blocks.
-		type GrantPeriod: Get<BlockNumberFor<Self>>;
+		/// Maximum number of authorization expiries per block. Authorizations will be extended to
+		/// avoid exceeding this limit.
+		type MaxBlockAuthorizationExpiries: Get<u32>;
+		/// Authorizations expire after this many blocks.
+		type AuthorizationPeriod: Get<BlockNumberFor<Self>>;
 	}
 
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Account has no transaction authorization tokens.
-		NoTransactionTokens,
-		/// Account has too few byte authorization tokens.
-		InsufficientByteTokens,
+		/// Not authorized to store the given data.
+		NotAuthorized,
 		/// Renewed extrinsic is not found.
 		RenewedNotFound,
 		/// Attempting to store empty transaction
@@ -183,7 +194,7 @@ pub mod pallet {
 				<ChunkCount<T>>::remove(obsolete);
 			}
 
-			weight += Self::expire_grants(n);
+			weight += Self::expire_authorizations(n);
 
 			// For `on_finalize`
 			weight += db_weight.reads_writes(2, 2);
@@ -227,15 +238,15 @@ pub mod pallet {
 				data.len() <= T::MaxTransactionSize::get() as usize,
 				Error::<T>::TransactionTooLarge
 			);
-			let sender = ensure_signed(origin)?;
-			Self::apply_fee(sender, data.len() as u32)?;
+			let content_hash = sp_io::hashing::blake2_256(&data);
+
+			Self::use_authorization(origin, content_hash.into(), data.len() as u32)?;
 
 			// Chunk data and compute storage root
 			let chunk_count = num_chunks(data.len() as u32);
 			let chunks = data.chunks(CHUNK_SIZE).map(|c| c.to_vec()).collect();
 			let root = sp_io::trie::blake2_256_ordered_root(chunks, sp_runtime::StateVersion::V1);
 
-			let content_hash = sp_io::hashing::blake2_256(&data);
 			let extrinsic_index =
 				<frame_system::Pallet<T>>::extrinsic_index().ok_or(Error::<T>::BadContext)?;
 			sp_io::transaction_index::index(extrinsic_index, data.len() as u32, content_hash);
@@ -264,7 +275,7 @@ pub mod pallet {
 		/// Renew previously stored data. Parameters are the block number that contains
 		/// previous `store` or `renew` call and transaction index within that block.
 		/// Transaction index is emitted in the `Stored` or `Renewed` event.
-		/// Applies same fees as `store`.
+		/// Requires same authorization as `store`.
 		/// ## Complexity
 		/// - O(1).
 		#[pallet::call_index(1)]
@@ -274,14 +285,13 @@ pub mod pallet {
 			block: BlockNumberFor<T>,
 			index: u32,
 		) -> DispatchResultWithPostInfo {
-			let sender = ensure_signed(origin)?;
 			let transactions = <Transactions<T>>::get(block).ok_or(Error::<T>::RenewedNotFound)?;
 			let info = transactions.get(index as usize).ok_or(Error::<T>::RenewedNotFound)?;
+
+			Self::use_authorization(origin, info.content_hash, info.size)?;
+
 			let extrinsic_index =
 				<frame_system::Pallet<T>>::extrinsic_index().ok_or(Error::<T>::BadContext)?;
-
-			Self::apply_fee(sender, info.size)?;
-
 			sp_io::transaction_index::renew(extrinsic_index, info.content_hash.into());
 
 			let mut index = 0;
@@ -369,26 +379,31 @@ pub mod pallet {
 		ProofChecked,
 	}
 
-	/// Account data.
+	/// Authorization usage by scope.
 	#[pallet::storage]
-	pub(super) type Accounts<T: Config> =
-		StorageMap<_, Blake2_128Concat, T::AccountId, Account, ValueQuery>;
-
-	/// Authorization token grants, keyed by expiry. Grants are _not_ removed when they are spent,
-	/// only when they expire.
-	#[pallet::storage]
-	pub(super) type Grants<T: Config> = StorageMap<
+	pub(super) type AuthorizationUsageByScope<T: Config> = StorageMap<
 		_,
 		Blake2_128Concat,
-		BlockNumberFor<T>,
-		BoundedVec<Grant<T::AccountId>, T::MaxBlockExpiries>,
+		AuthorizationScope<T::AccountId>,
+		AuthorizationUsage,
 		ValueQuery,
 	>;
 
-	/// Minimum expiry block for new grants, minus 1. This usually has no effect; its purpose is to
-	/// avoid overflowing the `BoundedVec`s in `Grants`.
+	/// Authorizations, keyed by expiry. Authorizations with no expiry are not added. Note that
+	/// authorizations are _not_ removed when they are used, only when they expire.
 	#[pallet::storage]
-	pub(super) type MinGrantExpiryMinus1<T: Config> =
+	pub(super) type AuthorizationsByExpiry<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		BlockNumberFor<T>,
+		BoundedVec<Authorization<T::AccountId>, T::MaxBlockAuthorizationExpiries>,
+		ValueQuery,
+	>;
+
+	/// Minimum expiry block for new authorizations, minus 1. This usually has no effect; its
+	/// purpose is to avoid overflowing the `BoundedVec`s in `AuthorizationsByExpiry`.
+	#[pallet::storage]
+	pub(super) type MinAuthorizationExpiryMinus1<T: Config> =
 		StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
 	/// Collection of transaction metadata by block number.
@@ -465,73 +480,94 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Grant authorization tokens to the specified account. Grants expire after a configured
-		/// number of blocks.
-		pub fn authorize(who: T::AccountId, transactions: u32, bytes: u64) {
-			let grant_period = T::GrantPeriod::get();
-			if grant_period.is_zero() {
-				return // Grants expire immediately
+		fn authorize(scope: AuthorizationScope<T::AccountId>, transactions: u32, bytes: u64) {
+			let period = T::AuthorizationPeriod::get();
+			if period.is_zero() {
+				return // Authorizations expire immediately
 			}
 
-			// Credit account. Note that it is possible for tokens to get lost due to the
+			// Credit scope. Note that it is possible for authorizations to get lost due to the
 			// saturating arithmetic.
-			Accounts::<T>::mutate(who.clone(), |account| {
-				account.unspent.transactions =
-					account.unspent.transactions.saturating_add(transactions);
-				account.unspent.bytes = account.unspent.bytes.saturating_add(bytes);
+			AuthorizationUsageByScope::<T>::mutate(scope.clone(), |usage| {
+				usage.unused.transactions = usage.unused.transactions.saturating_add(transactions);
+				usage.unused.bytes = usage.unused.bytes.saturating_add(bytes);
 			});
 
-			// Determine grant expiry block
-			let Some(expiry) = frame_system::Pallet::<T>::block_number().checked_add(&grant_period)
+			// Determine expiry block
+			let Some(expiry) = frame_system::Pallet::<T>::block_number().checked_add(&period)
 			else {
-				return // Grant never expires
+				return // Authorization never expires
 			};
-			let Some(min_grant_expiry) = MinGrantExpiryMinus1::<T>::get().checked_add(&1u32.into())
+			let Some(min_expiry) =
+				MinAuthorizationExpiryMinus1::<T>::get().checked_add(&1u32.into())
 			else {
-				return // Grant never expires
+				return // Authorization never expires
 			};
-			let expiry = expiry.max(min_grant_expiry);
+			let expiry = expiry.max(min_expiry);
 
-			// Record grant
-			let grant = Grant { who, amount: Tokens { transactions, bytes } };
-			Grants::<T>::mutate(expiry, |grants| {
-				grants.try_push(grant).expect(
-					"Whenever a BoundedVec becomes full, MinGrantExpiryMinus1 is bumped. \
-						MinGrantExpiryMinus1 never decreases. \
-						Thus a full BoundedVec will never be pushed to again.",
+			// Record authorization for expire_authorizations
+			let authorization =
+				Authorization { scope, extent: AuthorizationExtent { transactions, bytes } };
+			AuthorizationsByExpiry::<T>::mutate(expiry, |authorizations| {
+				authorizations.try_push(authorization).expect(
+					"Whenever a BoundedVec becomes full, MinAuthorizationExpiryMinus1 is bumped. \
+					MinAuthorizationExpiryMinus1 never decreases. \
+					Thus a full BoundedVec will never be pushed to again.",
 				);
-				if grants.is_full() {
-					MinGrantExpiryMinus1::<T>::put(expiry);
+				if authorizations.is_full() {
+					MinAuthorizationExpiryMinus1::<T>::put(expiry);
 				}
 			});
 		}
 
-		/// Returns the count of unspent tokens granted to the given account.
-		pub fn unspent_tokens(who: T::AccountId) -> Tokens {
-			Accounts::<T>::get(who).unspent
+		/// Authorize the given account to store the given amount of arbitrary data. The
+		/// authorization will expire after a configured number of blocks.
+		pub fn authorize_account(who: T::AccountId, transactions: u32, bytes: u64) {
+			Self::authorize(AuthorizationScope::Account(who), transactions, bytes);
 		}
 
-		fn expire_grants(block: BlockNumberFor<T>) -> Weight {
+		/// Authorize anyone to store a blob up to the given size with the given preimage. The
+		/// authorization will expire after a configured number of blocks.
+		pub fn authorize_preimage(preimage: Preimage, bytes: u64) {
+			Self::authorize(AuthorizationScope::Preimage(preimage), 1, bytes);
+		}
+
+		/// Returns the unused extent of (unexpired) authorizations for the given account.
+		pub fn unused_account_authorization_extent(who: T::AccountId) -> AuthorizationExtent {
+			AuthorizationUsageByScope::<T>::get(AuthorizationScope::Account(who)).unused
+		}
+
+		/// Returns the unused extent of (unexpired) authorizations for the given preimage.
+		pub fn unused_preimage_authorization_extent(preimage: Preimage) -> AuthorizationExtent {
+			AuthorizationUsageByScope::<T>::get(AuthorizationScope::Preimage(preimage)).unused
+		}
+
+		fn expire_authorizations(block: BlockNumberFor<T>) -> Weight {
 			let mut weight = Weight::zero();
 			let db_weight = T::DbWeight::get();
 
 			weight += db_weight.reads(1);
-			for grant in Grants::<T>::take(block) {
+			for authorization in AuthorizationsByExpiry::<T>::take(block) {
 				weight += db_weight.reads_writes(1, 1);
-				Accounts::<T>::mutate_exists(grant.who, |account_slot| {
-					if let Some(account) = account_slot {
-						let unspent_transactions =
-							grant.amount.transactions.saturating_sub(account.spent.transactions);
-						let unspent_bytes = grant.amount.bytes.saturating_sub(account.spent.bytes);
-						account.spent.transactions =
-							account.spent.transactions.saturating_sub(grant.amount.transactions);
-						account.spent.bytes =
-							account.spent.bytes.saturating_sub(grant.amount.bytes);
-						account.unspent.transactions =
-							account.unspent.transactions.saturating_sub(unspent_transactions);
-						account.unspent.bytes = account.unspent.bytes.saturating_sub(unspent_bytes);
-						if *account == Default::default() {
-							*account_slot = None;
+				AuthorizationUsageByScope::<T>::mutate_exists(authorization.scope, |usage_slot| {
+					if let Some(usage) = usage_slot {
+						let unused_transactions = authorization
+							.extent
+							.transactions
+							.saturating_sub(usage.used.transactions);
+						let unused_bytes =
+							authorization.extent.bytes.saturating_sub(usage.used.bytes);
+						usage.used.transactions = usage
+							.used
+							.transactions
+							.saturating_sub(authorization.extent.transactions);
+						usage.used.bytes =
+							usage.used.bytes.saturating_sub(authorization.extent.bytes);
+						usage.unused.transactions =
+							usage.unused.transactions.saturating_sub(unused_transactions);
+						usage.unused.bytes = usage.unused.bytes.saturating_sub(unused_bytes);
+						if *usage == Default::default() {
+							*usage_slot = None;
 						}
 					}
 				});
@@ -540,20 +576,23 @@ pub mod pallet {
 			weight
 		}
 
-		fn apply_fee(sender: T::AccountId, size: u32) -> DispatchResult {
-			Accounts::<T>::try_mutate(sender, |account| {
-				account.unspent.transactions = account
-					.unspent
-					.transactions
-					.checked_sub(1)
-					.ok_or(Error::<T>::NoTransactionTokens)?;
-				account.unspent.bytes = account
-					.unspent
-					.bytes
-					.checked_sub(size.into())
-					.ok_or(Error::<T>::InsufficientByteTokens)?;
-				account.spent.transactions = account.spent.transactions.saturating_add(1);
-				account.spent.bytes = account.spent.bytes.saturating_add(size.into());
+		fn use_authorization(
+			origin: OriginFor<T>,
+			preimage: Preimage,
+			size: u32,
+		) -> DispatchResult {
+			let scope = match origin.into() {
+				Ok(RawOrigin::Signed(who)) => AuthorizationScope::Account(who),
+				Ok(RawOrigin::None) => AuthorizationScope::Preimage(preimage),
+				_ => return Err(DispatchError::BadOrigin),
+			};
+			AuthorizationUsageByScope::<T>::try_mutate(scope, |usage| {
+				usage.unused.transactions =
+					usage.unused.transactions.checked_sub(1).ok_or(Error::<T>::NotAuthorized)?;
+				usage.unused.bytes =
+					usage.unused.bytes.checked_sub(size.into()).ok_or(Error::<T>::NotAuthorized)?;
+				usage.used.transactions = usage.used.transactions.saturating_add(1);
+				usage.used.bytes = usage.used.bytes.saturating_add(size.into());
 				Ok(())
 			})
 		}

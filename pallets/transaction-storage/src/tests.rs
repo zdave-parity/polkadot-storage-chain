@@ -30,7 +30,7 @@ fn discards_data() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
-		TransactionStorage::<Test>::authorize(caller, 2, 4000);
+		TransactionStorage::<Test>::authorize_account(caller, 2, 4000);
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; 2000 as usize]
@@ -63,33 +63,33 @@ fn discards_data() {
 }
 
 #[test]
-fn burns_fee() {
+fn uses_account_authorization() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
-		TransactionStorage::<Test>::authorize(caller, 2, 2000);
+		TransactionStorage::<Test>::authorize_account(caller, 2, 2000);
 		assert_eq!(
-			TransactionStorage::<Test>::unspent_tokens(caller),
-			Tokens { transactions: 2, bytes: 2000 }
+			TransactionStorage::<Test>::unused_account_authorization_extent(caller),
+			AuthorizationExtent { transactions: 2, bytes: 2000 }
 		);
 		assert_noop!(
 			TransactionStorage::<Test>::store(
 				RawOrigin::Signed(5).into(),
 				vec![0u8; 2000 as usize]
 			),
-			Error::<Test>::NoTransactionTokens,
+			Error::<Test>::NotAuthorized,
 		);
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; 2000 as usize]
 		));
 		assert_eq!(
-			TransactionStorage::<Test>::unspent_tokens(caller),
-			Tokens { transactions: 1, bytes: 0 }
+			TransactionStorage::<Test>::unused_account_authorization_extent(caller),
+			AuthorizationExtent { transactions: 1, bytes: 0 }
 		);
 		assert_noop!(
 			TransactionStorage::<Test>::store(RawOrigin::Signed(caller).into(), vec![0u8; 1]),
-			Error::<Test>::InsufficientByteTokens,
+			Error::<Test>::NotAuthorized,
 		);
 	});
 }
@@ -99,7 +99,7 @@ fn checks_proof() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
-		TransactionStorage::<Test>::authorize(caller, 1, MAX_DATA_SIZE.into());
+		TransactionStorage::<Test>::authorize_account(caller, 1, MAX_DATA_SIZE.into());
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; MAX_DATA_SIZE as usize]
@@ -132,7 +132,7 @@ fn renews_data() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
-		TransactionStorage::<Test>::authorize(caller, 4, 4009);
+		TransactionStorage::<Test>::authorize_account(caller, 4, 4009);
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; 2000]
@@ -145,8 +145,8 @@ fn renews_data() {
 			0, // transaction
 		));
 		assert_eq!(
-			TransactionStorage::<Test>::unspent_tokens(caller),
-			Tokens { transactions: 2, bytes: 9 },
+			TransactionStorage::<Test>::unused_account_authorization_extent(caller),
+			AuthorizationExtent { transactions: 2, bytes: 9 },
 		);
 		let proof_provider = || {
 			let block_num = <frame_system::Pallet<Test>>::block_number();
@@ -166,24 +166,24 @@ fn renews_data() {
 }
 
 #[test]
-fn grant_expires() {
+fn authorization_expires() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
-		let recipient = 1;
-		TransactionStorage::<Test>::authorize(recipient, 1, 2000);
+		let who = 1;
+		TransactionStorage::<Test>::authorize_account(who, 1, 2000);
 		assert_eq!(
-			TransactionStorage::<Test>::unspent_tokens(recipient),
-			Tokens { transactions: 1, bytes: 2000 },
+			TransactionStorage::<Test>::unused_account_authorization_extent(who),
+			AuthorizationExtent { transactions: 1, bytes: 2000 },
 		);
 		run_to_block(10, || None);
 		assert_eq!(
-			TransactionStorage::<Test>::unspent_tokens(recipient),
-			Tokens { transactions: 1, bytes: 2000 },
+			TransactionStorage::<Test>::unused_account_authorization_extent(who),
+			AuthorizationExtent { transactions: 1, bytes: 2000 },
 		);
 		run_to_block(11, || None);
 		assert_eq!(
-			TransactionStorage::<Test>::unspent_tokens(recipient),
-			Tokens { transactions: 0, bytes: 0 },
+			TransactionStorage::<Test>::unused_account_authorization_extent(who),
+			AuthorizationExtent { transactions: 0, bytes: 0 },
 		);
 	});
 }

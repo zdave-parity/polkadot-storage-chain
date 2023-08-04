@@ -72,7 +72,7 @@ impl frame_system::Config for Test {
 }
 
 parameter_types! {
-	pub const TransactionStorageGrantPeriod: BlockNumberFor<Test> = 10;
+	pub const TransactionStorageAuthorizationPeriod: BlockNumberFor<Test> = 10;
 }
 
 impl pallet_transaction_storage::Config for Test {
@@ -81,8 +81,8 @@ impl pallet_transaction_storage::Config for Test {
 	type WeightInfo = ();
 	type MaxBlockTransactions = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
 	type MaxTransactionSize = ConstU32<{ DEFAULT_MAX_TRANSACTION_SIZE }>;
-	type MaxBlockExpiries = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
-	type GrantPeriod = TransactionStorageGrantPeriod;
+	type MaxBlockAuthorizationExpiries = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
+	type AuthorizationPeriod = TransactionStorageAuthorizationPeriod;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
