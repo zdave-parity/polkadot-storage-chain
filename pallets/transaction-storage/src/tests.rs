@@ -30,7 +30,12 @@ fn discards_data() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
-		TransactionStorage::<Test>::authorize_account(caller, 2, 4000);
+		assert_ok!(TransactionStorage::<Test>::authorize_account(
+			RawOrigin::Root.into(),
+			caller,
+			2,
+			4000
+		));
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; 2000 as usize]
@@ -67,7 +72,12 @@ fn uses_account_authorization() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
-		TransactionStorage::<Test>::authorize_account(caller, 2, 2000);
+		assert_ok!(TransactionStorage::<Test>::authorize_account(
+			RawOrigin::Root.into(),
+			caller,
+			2,
+			2000
+		));
 		assert_eq!(
 			TransactionStorage::<Test>::unused_account_authorization_extent(caller),
 			AuthorizationExtent { transactions: 2, bytes: 2000 }
@@ -99,7 +109,12 @@ fn checks_proof() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
-		TransactionStorage::<Test>::authorize_account(caller, 1, MAX_DATA_SIZE.into());
+		assert_ok!(TransactionStorage::<Test>::authorize_account(
+			RawOrigin::Root.into(),
+			caller,
+			1,
+			MAX_DATA_SIZE.into()
+		));
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; MAX_DATA_SIZE as usize]
@@ -132,7 +147,12 @@ fn renews_data() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let caller = 1;
-		TransactionStorage::<Test>::authorize_account(caller, 4, 4009);
+		assert_ok!(TransactionStorage::<Test>::authorize_account(
+			RawOrigin::Root.into(),
+			caller,
+			4,
+			4009
+		));
 		assert_ok!(TransactionStorage::<Test>::store(
 			RawOrigin::Signed(caller).into(),
 			vec![0u8; 2000]
@@ -170,7 +190,12 @@ fn authorization_expires() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let who = 1;
-		TransactionStorage::<Test>::authorize_account(who, 1, 2000);
+		assert_ok!(TransactionStorage::<Test>::authorize_account(
+			RawOrigin::Root.into(),
+			who,
+			1,
+			2000
+		));
 		assert_eq!(
 			TransactionStorage::<Test>::unused_account_authorization_extent(who),
 			AuthorizationExtent { transactions: 1, bytes: 2000 },

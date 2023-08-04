@@ -25,7 +25,7 @@ use frame_support::{
 	parameter_types,
 	traits::{ConstU16, ConstU32, ConstU64, OnFinalize, OnInitialize},
 };
-use frame_system::pallet_prelude::BlockNumberFor;
+use frame_system::{pallet_prelude::BlockNumberFor, EnsureRoot};
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
@@ -83,6 +83,7 @@ impl pallet_transaction_storage::Config for Test {
 	type MaxTransactionSize = ConstU32<{ DEFAULT_MAX_TRANSACTION_SIZE }>;
 	type MaxBlockAuthorizationExpiries = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
 	type AuthorizationPeriod = TransactionStorageAuthorizationPeriod;
+	type Authorizer = EnsureRoot<Self::AccountId>;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {

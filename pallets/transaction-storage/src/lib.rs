@@ -148,6 +148,8 @@ pub mod pallet {
 		type MaxBlockAuthorizationExpiries: Get<u32>;
 		/// Authorizations expire after this many blocks.
 		type AuthorizationPeriod: Get<BlockNumberFor<Self>>;
+		/// The origin that can authorize data storage.
+		type Authorizer: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	#[pallet::error]
@@ -366,6 +368,35 @@ pub mod pallet {
 			Self::deposit_event(Event::ProofChecked);
 			Ok(().into())
 		}
+
+		/// Authorize the given account to store the given amount of arbitrary data. The
+		/// authorization will expire after a configured number of blocks.
+		#[pallet::call_index(3)]
+		#[pallet::weight(1)] // TODO
+		pub fn authorize_account(
+			origin: OriginFor<T>,
+			who: T::AccountId,
+			transactions: u32,
+			bytes: u64,
+		) -> DispatchResult {
+			T::Authorizer::ensure_origin(origin)?;
+			Self::authorize(AuthorizationScope::Account(who), transactions, bytes);
+			Ok(())
+		}
+
+		/// Authorize anyone to store a blob up to the given size with the given preimage. The
+		/// authorization will expire after a configured number of blocks.
+		#[pallet::call_index(4)]
+		#[pallet::weight(1)] // TODO
+		pub fn authorize_preimage(
+			origin: OriginFor<T>,
+			preimage: Preimage,
+			bytes: u64,
+		) -> DispatchResult {
+			T::Authorizer::ensure_origin(origin)?;
+			Self::authorize(AuthorizationScope::Preimage(preimage), 1, bytes);
+			Ok(())
+		}
 	}
 
 	#[pallet::event]
@@ -518,18 +549,6 @@ pub mod pallet {
 					MinAuthorizationExpiryMinus1::<T>::put(expiry);
 				}
 			});
-		}
-
-		/// Authorize the given account to store the given amount of arbitrary data. The
-		/// authorization will expire after a configured number of blocks.
-		pub fn authorize_account(who: T::AccountId, transactions: u32, bytes: u64) {
-			Self::authorize(AuthorizationScope::Account(who), transactions, bytes);
-		}
-
-		/// Authorize anyone to store a blob up to the given size with the given preimage. The
-		/// authorization will expire after a configured number of blocks.
-		pub fn authorize_preimage(preimage: Preimage, bytes: u64) {
-			Self::authorize(AuthorizationScope::Preimage(preimage), 1, bytes);
 		}
 
 		/// Returns the unused extent of (unexpired) authorizations for the given account.

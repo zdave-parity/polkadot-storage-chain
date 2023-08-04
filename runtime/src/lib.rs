@@ -6,6 +6,7 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+use frame_system::EnsureRoot;
 use pallet_grandpa::AuthorityId as GrandpaId;
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -236,6 +237,7 @@ impl pallet_transaction_storage::Config for Runtime {
 	type MaxTransactionSize = ConstU32<{ 8 * 1024 * 1024 }>;
 	type MaxBlockAuthorizationExpiries = ConstU32<512>;
 	type AuthorizationPeriod = TransactionStorageAuthorizationPeriod;
+	type Authorizer = EnsureRoot<Self::AccountId>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
