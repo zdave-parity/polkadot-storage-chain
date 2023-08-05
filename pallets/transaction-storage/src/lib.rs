@@ -182,6 +182,8 @@ pub mod pallet {
 		BadContext,
 		/// The pallet cannot add any new authorizations.
 		TooManyAuthorizations,
+		/// The preimage could never be submitted in a single transaction, as required.
+		Impossible,
 	}
 
 	#[pallet::pallet]
@@ -399,8 +401,18 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Authorize the given account to store the given amount of arbitrary data. The
-		/// authorization will expire after a configured number of blocks.
+		/// Authorize an account to store up to a given amount of arbitrary data. Authorizations are
+		/// additive, that is if the account already has an authorization, this will increase it.
+		/// The authorization will expire after a configured number of blocks.
+		///
+		/// Parameters:
+		///
+		/// - `who`: The account to be credited with an authorization to store data.
+		/// - `transactions`: The number of transactions that `who` may submit to supply that data.
+		/// - `bytes`: The number of bytes that `who` may submit.
+		///
+		/// The origin for this call must be the pallet's `Authorizer`. Emits
+		/// `AccountUploadAuthorized` when successful.
 		#[pallet::call_index(3)]
 		#[pallet::weight(T::WeightInfo::authorize_account())]
 		pub fn authorize_account(
@@ -415,8 +427,17 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Authorize anyone to store a blob up to the given size with the given preimage. The
+		/// Authorize anyone to store a blob up to the given size, as long as the blob has a Blake2b
+		/// hash matching the authorization. The preimage must be uploaded in one call. The
 		/// authorization will expire after a configured number of blocks.
+		///
+		/// Parameters:
+		///
+		/// - `hash`: The Blake2b hash of the data to be submitted.
+		/// - `max_size`: THe maximum size, in bytes, of the preimage.
+		///
+		/// The origin for this call must be the pallet's `Authorizer`. Emits
+		/// `PreimageUploadAuthorized` when successful.
 		#[pallet::call_index(4)]
 		#[pallet::weight(T::WeightInfo::authorize_preimage())]
 		pub fn authorize_preimage(
@@ -425,6 +446,7 @@ pub mod pallet {
 			max_size: u64,
 		) -> DispatchResult {
 			T::Authorizer::ensure_origin(origin)?;
+			ensure!(max_size <= T::MaxTransactionSize::get().into(), Error::<T>::Impossible);
 			// A preimage authorized with a given hash must be uploaded in one transaction.
 			// Future work: allow merklized data structures.
 			Self::authorize(AuthorizationScope::Preimage(hash), 1, max_size)?;
