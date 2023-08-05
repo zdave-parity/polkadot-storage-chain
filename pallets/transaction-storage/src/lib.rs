@@ -122,7 +122,7 @@ fn num_chunks(bytes: u32) -> u32 {
 	((bytes as u64 + CHUNK_SIZE as u64 - 1) / CHUNK_SIZE as u64) as u32
 }
 
-#[frame_support::pallet(dev_mode)]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
@@ -381,7 +381,7 @@ pub mod pallet {
 		/// Authorize the given account to store the given amount of arbitrary data. The
 		/// authorization will expire after a configured number of blocks.
 		#[pallet::call_index(3)]
-		#[pallet::weight(1)] // TODO
+		#[pallet::weight(T::WeightInfo::authorize_account())]
 		pub fn authorize_account(
 			origin: OriginFor<T>,
 			who: T::AccountId,
@@ -397,7 +397,7 @@ pub mod pallet {
 		/// Authorize anyone to store a preimage of the given hash. The authorization will expire
 		/// after a configured number of blocks.
 		#[pallet::call_index(4)]
-		#[pallet::weight(1)] // TODO
+		#[pallet::weight(T::WeightInfo::authorize_preimage())]
 		pub fn authorize_preimage(
 			origin: OriginFor<T>,
 			hash: ContentHash,
