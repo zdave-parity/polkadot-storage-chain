@@ -402,7 +402,7 @@ pub mod pallet {
 		/// Authorize the given account to store the given amount of arbitrary data. The
 		/// authorization will expire after a configured number of blocks.
 		#[pallet::call_index(3)]
-		#[pallet::weight(1)] // TODO
+		#[pallet::weight(T::WeightInfo::authorize_account())]
 		pub fn authorize_account(
 			origin: OriginFor<T>,
 			who: T::AccountId,
@@ -411,28 +411,24 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::Authorizer::ensure_origin(origin)?;
 			Self::authorize(AuthorizationScope::Account(who.clone()), transactions, bytes)?;
-			Self::deposit_event(Event::AccountUploadAuthorized {
-				who,
-				transactions,
-				max_size: bytes,
-			});
+			Self::deposit_event(Event::AccountUploadAuthorized { who, transactions, bytes });
 			Ok(())
 		}
 
 		/// Authorize anyone to store a blob up to the given size with the given preimage. The
 		/// authorization will expire after a configured number of blocks.
 		#[pallet::call_index(4)]
-		#[pallet::weight(1)] // TODO
+		#[pallet::weight(T::WeightInfo::authorize_preimage())]
 		pub fn authorize_preimage(
 			origin: OriginFor<T>,
 			hash: PreimageHash,
-			bytes: u64,
+			max_size: u64,
 		) -> DispatchResult {
 			T::Authorizer::ensure_origin(origin)?;
 			// A preimage authorized with a given hash must be uploaded in one transaction.
 			// Future work: allow merklized data structures.
-			Self::authorize(AuthorizationScope::Preimage(hash), 1, bytes)?;
-			Self::deposit_event(Event::PreimageUploadAuthorized { hash, max_size: bytes });
+			Self::authorize(AuthorizationScope::Preimage(hash), 1, max_size)?;
+			Self::deposit_event(Event::PreimageUploadAuthorized { hash, max_size });
 			Ok(())
 		}
 	}
@@ -446,9 +442,9 @@ pub mod pallet {
 		Renewed { index: u32 },
 		/// Storage proof was successfully checked.
 		ProofChecked,
-		/// An account `who` was authorized to submit `transactions` to store up to `max_size`
+		/// An account `who` was authorized to submit `transactions` to store up to `bytes`
 		/// bytes.
-		AccountUploadAuthorized { who: T::AccountId, transactions: u32, max_size: u64 },
+		AccountUploadAuthorized { who: T::AccountId, transactions: u32, bytes: u64 },
 		/// The preimage matching `hash` may be uploaded by anyone. The number of preimage bytes
 		/// may not exceed `max_size`.
 		PreimageUploadAuthorized { hash: [u8; 32], max_size: u64 },

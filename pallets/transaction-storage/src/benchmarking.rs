@@ -21,7 +21,7 @@
 
 use super::*;
 use frame_benchmarking::{v2::*, whitelisted_caller};
-use frame_support::traits::{Get, OnFinalize, OnInitialize};
+use frame_support::traits::{EnsureOrigin, Get, OnFinalize, OnInitialize};
 use frame_system::{pallet_prelude::BlockNumberFor, EventRecord, Pallet as System, RawOrigin};
 use sp_runtime::traits::{One, Zero};
 use sp_transaction_storage_proof::TransactionStorageProof;
@@ -173,5 +173,36 @@ mod benchmarks {
 		assert_last_event::<T>(Event::ProofChecked.into());
 		Ok(())
 	}
+
+	#[benchmark]
+	fn authorize_account() -> Result<(), BenchmarkError> {
+		let origin = T::Authorizer::try_successful_origin()
+			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
+		let who: T::AccountId = whitelisted_caller();
+		let mega: u64 = 1 * 1024 * 1024;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, who.clone(), 10, mega);
+
+		assert_last_event::<T>(
+			Event::AccountUploadAuthorized { who, transactions: 10, bytes: mega }.into(),
+		);
+		Ok(())
+	}
+
+	#[benchmark]
+	fn authorize_preimage() -> Result<(), BenchmarkError> {
+		let origin = T::Authorizer::try_successful_origin()
+			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
+		let hash = [0u8; 32];
+		let mega: u64 = 1 * 1024 * 1024;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, hash, mega);
+
+		assert_last_event::<T>(Event::PreimageUploadAuthorized { hash, max_size: mega }.into());
+		Ok(())
+	}
+
 	impl_benchmark_test_suite!(TransactionStorage, crate::mock::new_test_ext(), crate::mock::Test);
 }

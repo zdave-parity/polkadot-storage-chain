@@ -55,6 +55,8 @@ pub trait WeightInfo {
 	fn store(l: u32, ) -> Weight;
 	fn renew() -> Weight;
 	fn check_proof() -> Weight;
+	fn authorize_account() -> Weight;
+	fn authorize_preimage() -> Weight;
 }
 
 /// Weights for pallet_transaction_storage using the Substrate node and recommended hardware.
@@ -114,6 +116,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(5_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
+	fn authorize_account() -> Weight {
+		Weight::from_parts(1_000, 1_000)
+	}
+	fn authorize_preimage() -> Weight {
+		Weight::from_parts(1_000, 1_000)
+	}
 }
 
 // For backwards compatibility and tests
@@ -171,5 +179,11 @@ impl WeightInfo for () {
 		Weight::from_parts(84_812_000, 40351)
 			.saturating_add(RocksDbWeight::get().reads(5_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	fn authorize_account() -> Weight {
+		Weight::from_parts(1_000, 1_000)
+	}
+	fn authorize_preimage() -> Weight {
+		Weight::from_parts(1_000, 1_000)
 	}
 }
