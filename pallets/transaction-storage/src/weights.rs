@@ -54,7 +54,7 @@ use core::marker::PhantomData;
 pub trait WeightInfo {
 	fn store(l: u32, ) -> Weight;
 	fn renew() -> Weight;
-	fn check_proof_max() -> Weight;
+	fn check_proof() -> Weight;
 }
 
 /// Weights for pallet_transaction_storage using the Substrate node and recommended hardware.
@@ -105,7 +105,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: System ParentHash (max_values: Some(1), max_size: Some(32), added: 527, mode: MaxEncodedLen)
 	/// Storage: TransactionStorage Transactions (r:1 w:0)
 	/// Proof: TransactionStorage Transactions (max_values: None, max_size: Some(36886), added: 39361, mode: MaxEncodedLen)
-	fn check_proof_max() -> Weight {
+	fn check_proof() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `37145`
 		//  Estimated: `40351`
@@ -163,7 +163,7 @@ impl WeightInfo for () {
 	/// Proof: System ParentHash (max_values: Some(1), max_size: Some(32), added: 527, mode: MaxEncodedLen)
 	/// Storage: TransactionStorage Transactions (r:1 w:0)
 	/// Proof: TransactionStorage Transactions (max_values: None, max_size: Some(36886), added: 39361, mode: MaxEncodedLen)
-	fn check_proof_max() -> Weight {
+	fn check_proof() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `37145`
 		//  Estimated: `40351`

@@ -354,7 +354,7 @@ pub mod pallet {
 		///   probing.
 		/// There's a DB read for each transaction.
 		#[pallet::call_index(2)]
-		#[pallet::weight((T::WeightInfo::check_proof_max(), DispatchClass::Mandatory))]
+		#[pallet::weight((T::WeightInfo::check_proof(), DispatchClass::Mandatory))]
 		pub fn check_proof(
 			origin: OriginFor<T>,
 			proof: TransactionStorageProof,
