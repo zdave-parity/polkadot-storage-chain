@@ -30,7 +30,10 @@ mod tests;
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::dispatch::{Dispatchable, GetDispatchInfo, RawOrigin};
-use sp_runtime::traits::{BlakeTwo256, CheckedAdd, Hash, One, Saturating, Zero};
+use sp_runtime::{
+	traits::{BlakeTwo256, CheckedAdd, Hash, One, Saturating, Zero},
+	ArithmeticError,
+};
 use sp_std::{prelude::*, result};
 use sp_transaction_storage_proof::{
 	encode_index, random_chunk, InherentError, TransactionStorageProof, CHUNK_SIZE,
@@ -74,7 +77,7 @@ struct AuthorizationUsage {
 	unused: AuthorizationExtent,
 }
 
-/// Preimage of a stored blob of data.
+/// Hash of a stored blob of data.
 type PreimageHash = [u8; 32];
 
 /// The scope of an authorization.
@@ -149,6 +152,8 @@ pub mod pallet {
 		type MaxBlockAuthorizationExpiries: Get<u32>;
 		/// Authorizations expire after this many blocks.
 		type AuthorizationPeriod: Get<BlockNumberFor<Self>>;
+		/// The duration, in blocks, for which the pallet will store data.
+		type StoragePeriod: Get<BlockNumberFor<Self>>;
 		/// The origin that can authorize data storage.
 		type Authorizer: EnsureOrigin<Self::RuntimeOrigin>;
 	}
@@ -191,7 +196,7 @@ pub mod pallet {
 			// Drop obsolete roots. The proof for `obsolete` will be checked later
 			// in this block, so we drop `obsolete` - 1.
 			weight.saturating_accrue(db_weight.reads(1));
-			let period = <StoragePeriod<T>>::get();
+			let period = T::StoragePeriod::get();
 			let obsolete = n.saturating_sub(period.saturating_add(One::one()));
 			if obsolete > Zero::zero() {
 				weight.saturating_accrue(db_weight.writes(2));
@@ -212,7 +217,7 @@ pub mod pallet {
 				<ProofChecked<T>>::take() || {
 					// Proof is not required for early or empty blocks.
 					let number = <frame_system::Pallet<T>>::block_number();
-					let period = <StoragePeriod<T>>::get();
+					let period = T::StoragePeriod::get();
 					let target_number = number.saturating_sub(period);
 					target_number.is_zero() || <ChunkCount<T>>::get(target_number) == 0
 				},
@@ -225,6 +230,22 @@ pub mod pallet {
 				<ChunkCount<T>>::insert(n, total_chunks);
 				<Transactions<T>>::insert(n, transactions);
 			}
+		}
+
+		fn integrity_test() {
+			assert!(
+				!T::AuthorizationPeriod::get().is_zero(),
+				"not useful if authorizations are never valid"
+			);
+			assert!(!T::StoragePeriod::get().is_zero(), "not useful if data is not stored");
+			assert!(
+				!T::MaxBlockTransactions::get().is_zero(),
+				"not useful if data cannot be submitted"
+			);
+			assert!(
+				!T::MaxTransactionSize::get().is_zero(),
+				"not useful if data cannot be uploaded"
+			);
 		}
 	}
 
@@ -341,7 +362,7 @@ pub mod pallet {
 			ensure_none(origin)?;
 			ensure!(!ProofChecked::<T>::get(), Error::<T>::DoubleCheck);
 			let number = <frame_system::Pallet<T>>::block_number();
-			let period = <StoragePeriod<T>>::get();
+			let period = T::StoragePeriod::get();
 			let target_number = number.saturating_sub(period);
 			ensure!(!target_number.is_zero(), Error::<T>::UnexpectedProof);
 			let total_chunks = <ChunkCount<T>>::get(target_number);
@@ -408,6 +429,8 @@ pub mod pallet {
 			bytes: u64,
 		) -> DispatchResult {
 			T::Authorizer::ensure_origin(origin)?;
+			// A preimage authorized with a given hash must be uploaded in one transaction.
+			// Future work: allow merklized data structures.
 			Self::authorize(AuthorizationScope::Preimage(hash), 1, bytes)?;
 			Self::deposit_event(Event::PreimageUploadAuthorized { hash, max_size: bytes });
 			Ok(())
@@ -452,12 +475,6 @@ pub mod pallet {
 		ValueQuery,
 	>;
 
-	/// Minimum expiry block for new authorizations, minus 1. This usually has no effect; its
-	/// purpose is to avoid overflowing the `BoundedVec`s in `AuthorizationsByExpiry`.
-	#[pallet::storage]
-	pub(super) type MinAuthorizationExpiryMinus1<T: Config> =
-		StorageValue<_, BlockNumberFor<T>, ValueQuery>;
-
 	/// Collection of transaction metadata by block number.
 	#[pallet::storage]
 	#[pallet::getter(fn transaction_roots)]
@@ -474,11 +491,6 @@ pub mod pallet {
 	pub(super) type ChunkCount<T: Config> =
 		StorageMap<_, Blake2_128Concat, BlockNumberFor<T>, u32, ValueQuery>;
 
-	/// Storage period for data in blocks. Should match `sp_storage_proof::DEFAULT_STORAGE_PERIOD`
-	/// for block authoring.
-	#[pallet::storage]
-	pub(super) type StoragePeriod<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
-
 	// Intermediates
 	#[pallet::storage]
 	pub(super) type BlockTransactions<T: Config> =
@@ -487,24 +499,6 @@ pub mod pallet {
 	/// Was the proof checked in this block?
 	#[pallet::storage]
 	pub(super) type ProofChecked<T: Config> = StorageValue<_, bool, ValueQuery>;
-
-	#[pallet::genesis_config]
-	pub struct GenesisConfig<T: Config> {
-		pub storage_period: BlockNumberFor<T>,
-	}
-
-	impl<T: Config> Default for GenesisConfig<T> {
-		fn default() -> Self {
-			Self { storage_period: sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD.into() }
-		}
-	}
-
-	#[pallet::genesis_build]
-	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
-		fn build(&self) {
-			<StoragePeriod<T>>::put(self.storage_period);
-		}
-	}
 
 	#[pallet::inherent]
 	impl<T: Config> ProvideInherent for Pallet<T> {
@@ -537,10 +531,11 @@ pub mod pallet {
 			transactions: u32,
 			bytes: u64,
 		) -> DispatchResult {
+			// Determine expiry block.
 			let period = T::AuthorizationPeriod::get();
-			if period.is_zero() {
-				return Ok(()) // Authorizations expire immediately
-			}
+			let expiry = frame_system::Pallet::<T>::block_number()
+				.checked_add(&period)
+				.ok_or(ArithmeticError::Overflow)?;
 
 			// Credit scope. Note that it is possible for authorizations to get lost due to the
 			// saturating arithmetic.
@@ -549,29 +544,14 @@ pub mod pallet {
 				usage.unused.bytes = usage.unused.bytes.saturating_add(bytes);
 			});
 
-			// Determine expiry block
-			let Some(expiry) = frame_system::Pallet::<T>::block_number().checked_add(&period)
-			else {
-				return Ok(()) // Authorization never expires
-			};
-			let Some(min_expiry) =
-				MinAuthorizationExpiryMinus1::<T>::get().checked_add(&1u32.into())
-			else {
-				return Ok(()) // Authorization never expires
-			};
-			let expiry = expiry.max(min_expiry);
-
-			// Record authorization for expire_authorizations
-			let authorization =
-				Authorization { scope, extent: AuthorizationExtent { transactions, bytes } };
-
+			// Record authorization for expiration.
 			AuthorizationsByExpiry::<T>::mutate(expiry, |authorizations| -> DispatchResult {
 				authorizations
-					.try_push(authorization)
+					.try_push(Authorization {
+						scope,
+						extent: AuthorizationExtent { transactions, bytes },
+					})
 					.map_err(|_| Error::<T>::TooManyAuthorizations)?;
-				if authorizations.is_full() {
-					MinAuthorizationExpiryMinus1::<T>::put(expiry);
-				}
 				Ok(())
 			})
 		}
@@ -595,18 +575,24 @@ pub mod pallet {
 				weight.saturating_accrue(db_weight.reads_writes(1, 1));
 				AuthorizationUsageByScope::<T>::mutate_exists(authorization.scope, |usage_slot| {
 					if let Some(usage) = usage_slot {
+						// Calculate unused transaction count from the authorization.
 						let unused_transactions = authorization
 							.extent
 							.transactions
 							.saturating_sub(usage.used.transactions);
+						// Calculate unused bytes from the authorization.
 						let unused_bytes =
 							authorization.extent.bytes.saturating_sub(usage.used.bytes);
+
+						// Remove used.
 						usage.used.transactions = usage
 							.used
 							.transactions
 							.saturating_sub(authorization.extent.transactions);
 						usage.used.bytes =
 							usage.used.bytes.saturating_sub(authorization.extent.bytes);
+
+						// Remove unused.
 						usage.unused.transactions =
 							usage.unused.transactions.saturating_sub(unused_transactions);
 						usage.unused.bytes = usage.unused.bytes.saturating_sub(unused_bytes);
@@ -616,7 +602,6 @@ pub mod pallet {
 					}
 				});
 			}
-
 			weight
 		}
 
