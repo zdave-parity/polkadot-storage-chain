@@ -260,3 +260,68 @@ fn authorization_expires() {
 		);
 	});
 }
+
+#[test]
+fn too_many_authorizations_get_extra_block() {
+	new_test_ext().execute_with(|| {
+		run_to_block(1, || None);
+		// each block can hold 10
+		// type MaxBlockAuthorizationExpiries = ConstU32<10>;
+		for ii in 0..25 {
+			if ii < 20 {
+				assert_ok!(TransactionStorage::<Test>::authorize_account(
+					RawOrigin::Root.into(),
+					ii,
+					1,
+					2000
+				));
+				System::assert_last_event(RuntimeEvent::TransactionStorage(
+					crate::Event::AccountUploadAuthorized { who: ii, transactions: 1, bytes: 2000 },
+				));
+			} else {
+				assert_noop!(
+					TransactionStorage::<Test>::authorize_account(
+						RawOrigin::Root.into(),
+						ii,
+						1,
+						2000
+					),
+					Error::<Test>::TooManyAuthorizations
+				);
+			}
+		}
+
+		// Only the first 10 have expired. The rest were pushed one block further.
+		run_to_block(11, || None);
+		for ii in 0..25 {
+			if ii < 10 {
+				// first 10
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 0, bytes: 0 },
+				);
+			} else if ii < 20 {
+				// next 10, still there
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 1, bytes: 2000 },
+				);
+			} else {
+				// last 5, never authorized anyway
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 0, bytes: 0 },
+				);
+			}
+		}
+
+		// Now everything has expired.
+		run_to_block(12, || None);
+		for ii in 0..25 {
+			assert_eq!(
+				TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+				AuthorizationExtent { transactions: 0, bytes: 0 },
+			);
+		}
+	});
+}

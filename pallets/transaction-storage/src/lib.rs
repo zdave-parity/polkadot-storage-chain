@@ -551,9 +551,21 @@ pub mod pallet {
 		) -> DispatchResult {
 			// Determine expiry block.
 			let period = T::AuthorizationPeriod::get();
-			let expiry = frame_system::Pallet::<T>::block_number()
+			let max_authorizations = T::MaxBlockAuthorizationExpiries::get() as usize;
+			let mut expiry = frame_system::Pallet::<T>::block_number()
 				.checked_add(&period)
 				.ok_or(ArithmeticError::Overflow)?;
+
+			if AuthorizationsByExpiry::<T>::decode_len(expiry).unwrap_or_default() >=
+				max_authorizations
+			{
+				expiry.saturating_accrue(One::one());
+				ensure!(
+					AuthorizationsByExpiry::<T>::decode_len(expiry).unwrap_or_default() <
+						max_authorizations,
+					Error::<T>::TooManyAuthorizations
+				);
+			}
 
 			// Credit scope. Note that it is possible for authorizations to get lost due to the
 			// saturating arithmetic.
@@ -569,6 +581,7 @@ pub mod pallet {
 						scope,
 						extent: AuthorizationExtent { transactions, bytes },
 					})
+					// already checked, should never happen
 					.map_err(|_| Error::<T>::TooManyAuthorizations)?;
 				Ok(())
 			})
