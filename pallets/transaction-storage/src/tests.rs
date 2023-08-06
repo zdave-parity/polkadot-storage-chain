@@ -260,3 +260,117 @@ fn authorization_expires() {
 		);
 	});
 }
+
+#[test]
+fn handles_surge_by_pushing_expiration() {
+	new_test_ext().execute_with(|| {
+		run_to_block(1, || None);
+
+		// type MaxBlockAuthorizationExpiries = ConstU32<10>;
+		// type StoragePeriod = ConstU64<10>;
+
+		// Expect first 10 to be "normal", next 10 to be pushed 1 block, etc.
+		for ii in 0..30 {
+			assert_ok!(TransactionStorage::<Test>::authorize_account(
+				RawOrigin::Root.into(),
+				ii,
+				1,
+				2000
+			));
+			System::assert_last_event(RuntimeEvent::TransactionStorage(
+				crate::Event::AccountUploadAuthorized { who: ii, transactions: 1, bytes: 2000 },
+			));
+		}
+
+		// Another burst.
+		run_to_block(5, || None);
+		for ii in 30..50 {
+			assert_ok!(TransactionStorage::<Test>::authorize_account(
+				RawOrigin::Root.into(),
+				ii,
+				1,
+				2000
+			));
+			System::assert_last_event(RuntimeEvent::TransactionStorage(
+				crate::Event::AccountUploadAuthorized { who: ii, transactions: 1, bytes: 2000 },
+			));
+		}
+
+		run_to_block(11, || None);
+		for ii in 0..50 {
+			if ii < 10 {
+				// should have expired
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 0, bytes: 0 },
+				);
+			} else {
+				// still there
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 1, bytes: 2000 },
+				);
+			}
+		}
+
+		run_to_block(12, || None);
+		for ii in 0..50 {
+			if ii < 20 {
+				// expired
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 0, bytes: 0 },
+				);
+			} else {
+				// still there
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 1, bytes: 2000 },
+				);
+			}
+		}
+
+		run_to_block(13, || None);
+		for ii in 0..50 {
+			if ii < 30 {
+				// expired
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 0, bytes: 0 },
+				);
+			} else {
+				// still there
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 1, bytes: 2000 },
+				);
+			}
+		}
+
+		run_to_block(15, || None);
+		for ii in 0..50 {
+			if ii < 40 {
+				// expired
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 0, bytes: 0 },
+				);
+			} else {
+				// still there
+				assert_eq!(
+					TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+					AuthorizationExtent { transactions: 1, bytes: 2000 },
+				);
+			}
+		}
+
+		run_to_block(16, || None);
+		for ii in 0..50 {
+			// all expired
+			assert_eq!(
+				TransactionStorage::<Test>::unused_account_authorization_extent(ii),
+				AuthorizationExtent { transactions: 0, bytes: 0 },
+			);
+		}
+	});
+}

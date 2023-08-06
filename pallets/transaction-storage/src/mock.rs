@@ -40,7 +40,7 @@ frame_support::construct_runtime!(
 	{
 		System: frame_system::{Pallet, Call, Config<T>, Storage, Event<T>},
 		TransactionStorage: pallet_transaction_storage::{
-			Pallet, Call, Storage, Config<T>, Inherent, Event<T>
+			Pallet, Call, Storage, Inherent, Event<T>
 		},
 	}
 );
@@ -81,20 +81,14 @@ impl pallet_transaction_storage::Config for Test {
 	type WeightInfo = ();
 	type MaxBlockTransactions = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
 	type MaxTransactionSize = ConstU32<{ DEFAULT_MAX_TRANSACTION_SIZE }>;
-	type MaxBlockAuthorizationExpiries = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
+	type MaxBlockAuthorizationExpiries = ConstU32<10>;
 	type AuthorizationPeriod = TransactionStorageAuthorizationPeriod;
+	type StoragePeriod = ConstU64<10>;
 	type Authorizer = EnsureRoot<Self::AccountId>;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	let t = RuntimeGenesisConfig {
-		system: Default::default(),
-		transaction_storage: pallet_transaction_storage::GenesisConfig::<Test> {
-			storage_period: 10,
-		},
-	}
-	.build_storage()
-	.unwrap();
+	let t = RuntimeGenesisConfig { system: Default::default() }.build_storage().unwrap();
 	t.into()
 }
 

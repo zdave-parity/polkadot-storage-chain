@@ -493,6 +493,10 @@ pub mod pallet {
 		ValueQuery,
 	>;
 
+	#[pallet::storage]
+	pub(super) type KnownFreeExpiryBlock<T: Config> =
+		StorageValue<_, BlockNumberFor<T>, ValueQuery>;
+
 	/// Collection of transaction metadata by block number.
 	#[pallet::storage]
 	#[pallet::getter(fn transaction_roots)]
@@ -551,9 +555,10 @@ pub mod pallet {
 		) -> DispatchResult {
 			// Determine expiry block.
 			let period = T::AuthorizationPeriod::get();
-			let expiry = frame_system::Pallet::<T>::block_number()
+			let one_expiry_period = frame_system::Pallet::<T>::block_number()
 				.checked_add(&period)
 				.ok_or(ArithmeticError::Overflow)?;
+			let expiry = one_expiry_period.max(KnownFreeExpiryBlock::<T>::get());
 
 			// Credit scope. Note that it is possible for authorizations to get lost due to the
 			// saturating arithmetic.
@@ -569,7 +574,12 @@ pub mod pallet {
 						scope,
 						extent: AuthorizationExtent { transactions, bytes },
 					})
+					// Defensive, should never encounter.
 					.map_err(|_| Error::<T>::TooManyAuthorizations)?;
+
+				if authorizations.is_full() {
+					KnownFreeExpiryBlock::<T>::put(expiry.saturating_add(One::one()));
+				}
 				Ok(())
 			})
 		}
