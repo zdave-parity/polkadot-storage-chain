@@ -277,9 +277,34 @@ fn handles_surge_by_pushing_expiration() {
 				1,
 				2000
 			));
-			System::assert_last_event(RuntimeEvent::TransactionStorage(
-				crate::Event::AccountUploadAuthorized { who: ii, transactions: 1, bytes: 2000 },
-			));
+			if ii < 10 {
+				System::assert_last_event(RuntimeEvent::TransactionStorage(
+					crate::Event::AccountUploadAuthorized {
+						who: ii,
+						transactions: 1,
+						bytes: 2000,
+						expiry: 11,
+					},
+				));
+			} else if ii < 20 {
+				System::assert_last_event(RuntimeEvent::TransactionStorage(
+					crate::Event::AccountUploadAuthorized {
+						who: ii,
+						transactions: 1,
+						bytes: 2000,
+						expiry: 12,
+					},
+				));
+			} else {
+				System::assert_last_event(RuntimeEvent::TransactionStorage(
+					crate::Event::AccountUploadAuthorized {
+						who: ii,
+						transactions: 1,
+						bytes: 2000,
+						expiry: 13,
+					},
+				));
+			}
 		}
 
 		// Another burst.
@@ -291,9 +316,25 @@ fn handles_surge_by_pushing_expiration() {
 				1,
 				2000
 			));
-			System::assert_last_event(RuntimeEvent::TransactionStorage(
-				crate::Event::AccountUploadAuthorized { who: ii, transactions: 1, bytes: 2000 },
-			));
+			if ii < 40 {
+				System::assert_last_event(RuntimeEvent::TransactionStorage(
+					crate::Event::AccountUploadAuthorized {
+						who: ii,
+						transactions: 1,
+						bytes: 2000,
+						expiry: 15,
+					},
+				));
+			} else {
+				System::assert_last_event(RuntimeEvent::TransactionStorage(
+					crate::Event::AccountUploadAuthorized {
+						who: ii,
+						transactions: 1,
+						bytes: 2000,
+						expiry: 16,
+					},
+				));
+			}
 		}
 
 		run_to_block(11, || None);

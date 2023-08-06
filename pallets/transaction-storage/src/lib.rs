@@ -422,8 +422,14 @@ pub mod pallet {
 			bytes: u64,
 		) -> DispatchResult {
 			T::Authorizer::ensure_origin(origin)?;
-			Self::authorize(AuthorizationScope::Account(who.clone()), transactions, bytes)?;
-			Self::deposit_event(Event::AccountUploadAuthorized { who, transactions, bytes });
+			let expiry =
+				Self::authorize(AuthorizationScope::Account(who.clone()), transactions, bytes)?;
+			Self::deposit_event(Event::AccountUploadAuthorized {
+				who,
+				transactions,
+				bytes,
+				expiry,
+			});
 			Ok(())
 		}
 
@@ -449,8 +455,8 @@ pub mod pallet {
 			ensure!(max_size <= T::MaxTransactionSize::get().into(), Error::<T>::Impossible);
 			// A preimage authorized with a given hash must be uploaded in one transaction.
 			// Future work: allow merklized data structures.
-			Self::authorize(AuthorizationScope::Preimage(hash), 1, max_size)?;
-			Self::deposit_event(Event::PreimageUploadAuthorized { hash, max_size });
+			let expiry = Self::authorize(AuthorizationScope::Preimage(hash), 1, max_size)?;
+			Self::deposit_event(Event::PreimageUploadAuthorized { hash, max_size, expiry });
 			Ok(())
 		}
 	}
@@ -465,11 +471,16 @@ pub mod pallet {
 		/// Storage proof was successfully checked.
 		ProofChecked,
 		/// An account `who` was authorized to submit `transactions` to store up to `bytes`
-		/// bytes.
-		AccountUploadAuthorized { who: T::AccountId, transactions: u32, bytes: u64 },
+		/// bytes. The authorization expires on the `expiry` block.
+		AccountUploadAuthorized {
+			who: T::AccountId,
+			transactions: u32,
+			bytes: u64,
+			expiry: BlockNumberFor<T>,
+		},
 		/// The preimage matching `hash` may be uploaded by anyone. The number of preimage bytes
-		/// may not exceed `max_size`.
-		PreimageUploadAuthorized { hash: [u8; 32], max_size: u64 },
+		/// may not exceed `max_size`. The authorization expires on the `expiry` block.
+		PreimageUploadAuthorized { hash: [u8; 32], max_size: u64, expiry: BlockNumberFor<T> },
 	}
 
 	/// Authorization usage by scope.
@@ -493,6 +504,9 @@ pub mod pallet {
 		ValueQuery,
 	>;
 
+	/// A block that is both higher than `now + StoragePeriod` and has not served as a key in
+	/// `AuthorizationsByExpiry`. This storage item allows the pallet to grant more than
+	/// `MaxBlockAuthorizationExpiries` authorizations in a single block.
 	#[pallet::storage]
 	pub(super) type KnownFreeExpiryBlock<T: Config> =
 		StorageValue<_, BlockNumberFor<T>, ValueQuery>;
@@ -552,7 +566,7 @@ pub mod pallet {
 			scope: AuthorizationScope<T::AccountId>,
 			transactions: u32,
 			bytes: u64,
-		) -> DispatchResult {
+		) -> Result<BlockNumberFor<T>, DispatchError> {
 			// Determine expiry block.
 			let period = T::AuthorizationPeriod::get();
 			let one_expiry_period = frame_system::Pallet::<T>::block_number()
@@ -568,20 +582,23 @@ pub mod pallet {
 			});
 
 			// Record authorization for expiration.
-			AuthorizationsByExpiry::<T>::mutate(expiry, |authorizations| -> DispatchResult {
-				authorizations
-					.try_push(Authorization {
-						scope,
-						extent: AuthorizationExtent { transactions, bytes },
-					})
-					// Defensive, should never encounter.
-					.map_err(|_| Error::<T>::TooManyAuthorizations)?;
+			AuthorizationsByExpiry::<T>::mutate(
+				expiry,
+				|authorizations| -> Result<BlockNumberFor<T>, DispatchError> {
+					authorizations
+						.try_push(Authorization {
+							scope,
+							extent: AuthorizationExtent { transactions, bytes },
+						})
+						// Defensive, should never encounter.
+						.map_err(|_| Error::<T>::TooManyAuthorizations)?;
 
-				if authorizations.is_full() {
-					KnownFreeExpiryBlock::<T>::put(expiry.saturating_add(One::one()));
-				}
-				Ok(())
-			})
+					if authorizations.is_full() {
+						KnownFreeExpiryBlock::<T>::put(expiry.saturating_add(One::one()));
+					}
+					Ok(expiry)
+				},
+			)
 		}
 
 		/// Returns the unused extent of (unexpired) authorizations for the given account.
