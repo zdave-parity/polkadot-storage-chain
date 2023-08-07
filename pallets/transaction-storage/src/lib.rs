@@ -49,6 +49,9 @@ pub use weights::WeightInfo;
 pub const DEFAULT_MAX_TRANSACTION_SIZE: u32 = 8 * 1024 * 1024;
 pub const DEFAULT_MAX_BLOCK_TRANSACTIONS: u32 = 512;
 
+/// Hash of a stored blob of data.
+type PreimageHash = [u8; 32];
+
 /// Number of transactions and bytes covered by an authorization or authorizations.
 #[derive(
 	Default,
@@ -67,19 +70,6 @@ pub struct AuthorizationExtent {
 	pub bytes: u64,
 }
 
-/// For tracking usage of authorizations for a particular account or preimage.
-#[derive(Default, PartialEq, Eq, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
-struct AuthorizationUsage {
-	/// Extent of (unexpired) authorizations used. When an authorization expires, it consumes from
-	/// this pool first.
-	used: AuthorizationExtent,
-	/// Extent of authorizations not yet used.
-	unused: AuthorizationExtent,
-}
-
-/// Hash of a stored blob of data.
-type PreimageHash = [u8; 32];
-
 /// The scope of an authorization.
 #[derive(Clone, sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
 enum AuthorizationScope<AccountId> {
@@ -90,12 +80,16 @@ enum AuthorizationScope<AccountId> {
 }
 
 /// An authorization to store data.
-#[derive(sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
-struct Authorization<AccountId> {
-	/// Scope of the authorization (account/preimage).
-	scope: AuthorizationScope<AccountId>,
-	/// Extent of the authorization (number of transactions/bytes).
+#[derive(
+	Default, sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen,
+)]
+struct Authorization<BlockNumberFor> {
+	/// Extent of the authorization (number of transactions/bytes). When the scope is an
+	/// `AccountId`, further authorizations will increase the authorization's extent and push the
+	/// expiration out to the newly calculated time.
 	extent: AuthorizationExtent,
+	/// The block at which this authorization expires.
+	expiration: BlockNumberFor,
 }
 
 /// State data for a stored transaction.
@@ -147,9 +141,6 @@ pub mod pallet {
 		type MaxBlockTransactions: Get<u32>;
 		/// Maximum data set in a single transaction in bytes.
 		type MaxTransactionSize: Get<u32>;
-		/// Maximum number of authorization expiries per block. Authorizations will be extended to
-		/// avoid exceeding this limit.
-		type MaxBlockAuthorizationExpiries: Get<u32>;
 		/// Authorizations expire after this many blocks.
 		type AuthorizationPeriod: Get<BlockNumberFor<Self>>;
 		/// The duration, in blocks, for which the pallet will store data.
@@ -180,8 +171,6 @@ pub mod pallet {
 		TooManyTransactions,
 		/// Attempted to call `store` outside of block execution.
 		BadContext,
-		/// The pallet cannot add any new authorizations.
-		TooManyAuthorizations,
 		/// The preimage could never be submitted in a single transaction, as required.
 		Impossible,
 	}
@@ -205,8 +194,6 @@ pub mod pallet {
 				<Transactions<T>>::remove(obsolete);
 				<ChunkCount<T>>::remove(obsolete);
 			}
-
-			weight.saturating_accrue(Self::expire_authorizations(n));
 
 			// For `on_finalize`
 			weight.saturating_accrue(db_weight.reads_writes(2, 2));
@@ -472,24 +459,13 @@ pub mod pallet {
 		PreimageUploadAuthorized { hash: [u8; 32], max_size: u64 },
 	}
 
-	/// Authorization usage by scope.
+	/// Authorization keyed by scope.
 	#[pallet::storage]
-	pub(super) type AuthorizationUsageByScope<T: Config> = StorageMap<
+	pub(super) type Authorizations<T: Config> = StorageMap<
 		_,
 		Blake2_128Concat,
 		AuthorizationScope<T::AccountId>,
-		AuthorizationUsage,
-		ValueQuery,
-	>;
-
-	/// Authorizations, keyed by expiry. Authorizations with no expiry are not added. Note that
-	/// authorizations are _not_ removed when they are used, only when they expire.
-	#[pallet::storage]
-	pub(super) type AuthorizationsByExpiry<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		BlockNumberFor<T>,
-		BoundedVec<Authorization<T::AccountId>, T::MaxBlockAuthorizationExpiries>,
+		Authorization<BlockNumberFor<T>>,
 		ValueQuery,
 	>;
 
@@ -551,76 +527,43 @@ pub mod pallet {
 		) -> DispatchResult {
 			// Determine expiry block.
 			let period = T::AuthorizationPeriod::get();
-			let expiry = frame_system::Pallet::<T>::block_number()
+			let expiration = frame_system::Pallet::<T>::block_number()
 				.checked_add(&period)
 				.ok_or(ArithmeticError::Overflow)?;
 
 			// Credit scope. Note that it is possible for authorizations to get lost due to the
 			// saturating arithmetic.
-			AuthorizationUsageByScope::<T>::mutate(scope.clone(), |usage| {
-				usage.unused.transactions = usage.unused.transactions.saturating_add(transactions);
-				usage.unused.bytes = usage.unused.bytes.saturating_add(bytes);
+			Authorizations::<T>::mutate(scope.clone(), |authorization| {
+				authorization.extent.transactions =
+					authorization.extent.transactions.saturating_add(transactions);
+				authorization.extent.bytes = authorization.extent.bytes.saturating_add(bytes);
+				authorization.expiration = expiration;
 			});
-
-			// Record authorization for expiration.
-			AuthorizationsByExpiry::<T>::mutate(expiry, |authorizations| -> DispatchResult {
-				authorizations
-					.try_push(Authorization {
-						scope,
-						extent: AuthorizationExtent { transactions, bytes },
-					})
-					.map_err(|_| Error::<T>::TooManyAuthorizations)?;
-				Ok(())
-			})
+			Ok(())
 		}
 
 		/// Returns the unused extent of (unexpired) authorizations for the given account.
 		pub fn unused_account_authorization_extent(who: T::AccountId) -> AuthorizationExtent {
-			AuthorizationUsageByScope::<T>::get(AuthorizationScope::Account(who)).unused
+			let authorization = Authorizations::<T>::get(AuthorizationScope::Account(who));
+			let now = frame_system::Pallet::<T>::block_number();
+			if now > authorization.expiration {
+				// authorization extent may exist, but has expired.
+				AuthorizationExtent { transactions: 0, bytes: 0 }
+			} else {
+				authorization.extent
+			}
 		}
 
 		/// Returns the unused extent of (unexpired) authorizations for the given preimage.
 		pub fn unused_preimage_authorization_extent(hash: PreimageHash) -> AuthorizationExtent {
-			AuthorizationUsageByScope::<T>::get(AuthorizationScope::Preimage(hash)).unused
-		}
-
-		fn expire_authorizations(block: BlockNumberFor<T>) -> Weight {
-			let mut weight = Weight::zero();
-			let db_weight = T::DbWeight::get();
-
-			weight.saturating_accrue(db_weight.reads(1));
-			for authorization in AuthorizationsByExpiry::<T>::take(block) {
-				weight.saturating_accrue(db_weight.reads_writes(1, 1));
-				AuthorizationUsageByScope::<T>::mutate_exists(authorization.scope, |usage_slot| {
-					if let Some(usage) = usage_slot {
-						// Calculate unused transaction count from the authorization.
-						let unused_transactions = authorization
-							.extent
-							.transactions
-							.saturating_sub(usage.used.transactions);
-						// Calculate unused bytes from the authorization.
-						let unused_bytes =
-							authorization.extent.bytes.saturating_sub(usage.used.bytes);
-
-						// Remove used.
-						usage.used.transactions = usage
-							.used
-							.transactions
-							.saturating_sub(authorization.extent.transactions);
-						usage.used.bytes =
-							usage.used.bytes.saturating_sub(authorization.extent.bytes);
-
-						// Remove unused.
-						usage.unused.transactions =
-							usage.unused.transactions.saturating_sub(unused_transactions);
-						usage.unused.bytes = usage.unused.bytes.saturating_sub(unused_bytes);
-						if *usage == Default::default() {
-							*usage_slot = None;
-						}
-					}
-				});
+			let authorization = Authorizations::<T>::get(AuthorizationScope::Preimage(hash));
+			let now = frame_system::Pallet::<T>::block_number();
+			if now > authorization.expiration {
+				// authorization extent may exist, but has expired.
+				AuthorizationExtent { transactions: 0, bytes: 0 }
+			} else {
+				authorization.extent
 			}
-			weight
 		}
 
 		fn use_authorization(
@@ -633,13 +576,29 @@ pub mod pallet {
 				Ok(RawOrigin::None) => AuthorizationScope::Preimage(hash),
 				_ => return Err(DispatchError::BadOrigin),
 			};
-			AuthorizationUsageByScope::<T>::try_mutate(scope, |usage| {
-				usage.unused.transactions =
-					usage.unused.transactions.checked_sub(1).ok_or(Error::<T>::NotAuthorized)?;
-				usage.unused.bytes =
-					usage.unused.bytes.checked_sub(size.into()).ok_or(Error::<T>::NotAuthorized)?;
-				usage.used.transactions = usage.used.transactions.saturating_add(1);
-				usage.used.bytes = usage.used.bytes.saturating_add(size.into());
+			let now = frame_system::Pallet::<T>::block_number();
+
+			Authorizations::<T>::try_mutate_exists(scope, |maybe_authorization| -> DispatchResult {
+				if let Some(authorization) = maybe_authorization.as_mut() {
+					if now > authorization.expiration {
+						*maybe_authorization = None;
+					} else {
+						let transactions = authorization
+							.extent
+							.transactions
+							.checked_sub(1)
+							.ok_or(Error::<T>::NotAuthorized)?;
+						let bytes = authorization
+							.extent
+							.bytes
+							.checked_sub(size.into())
+							.ok_or(Error::<T>::NotAuthorized)?;
+						authorization.extent.transactions = transactions;
+						authorization.extent.bytes = bytes;
+					}
+				} else {
+					return Err(Error::<T>::NotAuthorized.into())
+				}
 				Ok(())
 			})
 		}
