@@ -5083,6 +5083,7 @@ dependencies = [
  "frame-try-runtime",
  "pallet-aura",
  "pallet-grandpa",
+ "pallet-session",
  "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-storage",
@@ -5100,6 +5101,7 @@ dependencies = [
  "sp-std",
  "sp-transaction-pool",
  "sp-version",
+ "substrate-validator-set",
  "substrate-wasm-builder",
 ]
 
@@ -8212,6 +8214,25 @@ dependencies = [
  "sc-rpc-api",
  "serde",
  "sp-runtime",
+]
+
+[[package]]
+name = "substrate-validator-set"
+version = "1.0.0"
+source = "git+https://github.com/NachoPal/substrate-validator-set.git?branch=polkadot-v1.0.0#8bef892faa0c68860c8d94409c5eced4ac2e87d6"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-session",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std",
 ]
 
 [[package]]

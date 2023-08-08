@@ -1,6 +1,6 @@
 use polkadot_bulletin_chain_runtime::{
-	AccountId, AuraConfig, GrandpaConfig, RuntimeGenesisConfig, Signature, SudoConfig,
-	SystemConfig, WASM_BINARY,
+	AccountId, AuraConfig, GrandpaConfig, RuntimeGenesisConfig, SessionConfig, Signature,
+	SudoConfig, SystemConfig, ValidatorSetConfig, WASM_BINARY, opaque::SessionKeys,
 };
 use sc_service::ChainType;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -32,8 +32,16 @@ where
 }
 
 /// Generate an Aura authority key.
-pub fn authority_keys_from_seed(s: &str) -> (AuraId, GrandpaId) {
-	(get_from_seed::<AuraId>(s), get_from_seed::<GrandpaId>(s))
+pub fn authority_keys_from_seed(s: &str) -> (AccountId, AuraId, GrandpaId) {
+	(
+		get_account_id_from_seed::<sr25519::Public>(s),
+		get_from_seed::<AuraId>(s),
+		get_from_seed::<GrandpaId>(s)
+	)
+}
+
+fn session_keys(aura: AuraId, grandpa: GrandpaId) -> SessionKeys {
+	SessionKeys { aura, grandpa }
 }
 
 pub fn development_config() -> Result<ChainSpec, String> {
@@ -105,7 +113,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 /// Configure initial storage state for FRAME modules.
 fn testnet_genesis(
 	wasm_binary: &[u8],
-	initial_authorities: Vec<(AuraId, GrandpaId)>,
+	initial_authorities: Vec<(AccountId, AuraId, GrandpaId)>,
 	root_key: AccountId,
 	_enable_println: bool,
 ) -> RuntimeGenesisConfig {
@@ -115,17 +123,25 @@ fn testnet_genesis(
 			code: wasm_binary.to_vec(),
 			..Default::default()
 		},
+		validator_set: ValidatorSetConfig {
+			initial_validators: initial_authorities.iter().map(|x| x.0.clone()).collect(),
+		},
+		session: SessionConfig {
+			keys: initial_authorities.iter().map(|x| {
+				(x.0.clone(), x.0.clone(), session_keys(x.1.clone(), x.2.clone()))
+			}).collect(),
+		},
 		aura: AuraConfig {
-			authorities: initial_authorities.iter().map(|x| (x.0.clone())).collect(),
+			authorities: vec![],
 		},
 		grandpa: GrandpaConfig {
-			authorities: initial_authorities.iter().map(|x| (x.1.clone(), 1)).collect(),
+			authorities: vec![],
 			..Default::default()
 		},
+		transaction_storage: Default::default(),
 		sudo: SudoConfig {
 			// Assign network admin rights.
 			key: Some(root_key),
 		},
-		transaction_storage: Default::default(),
 	}
 }

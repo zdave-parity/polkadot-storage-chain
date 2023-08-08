@@ -1,0 +1,11 @@
+[relaychain]
+chain = "local"
+default_command = "./target/release/polkadot-bulletin-chain"
+
+	[[relaychain.nodes]]
+	name = "alice"
+	validator = true
+
+	[[relaychain.nodes]]
+	name = "bob"
+	validator = true

@@ -13,7 +13,7 @@ use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
-	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify},
+	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify, OpaqueKeys},
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
 };
@@ -21,6 +21,7 @@ use sp_std::prelude::*;
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
+use substrate_validator_set as validator_set;
 
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
@@ -240,15 +241,45 @@ impl pallet_transaction_storage::Config for Runtime {
 	type Authorizer = EnsureRoot<Self::AccountId>;
 }
 
+parameter_types! {
+	pub const MinAuthorities: u32 = 2;
+}
+
+impl validator_set::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type AddRemoveOrigin = EnsureRoot<AccountId>;
+	type MinAuthorities = MinAuthorities;
+	type WeightInfo = validator_set::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
+	pub const Period: u32 = 2 * MINUTES;
+	pub const Offset: u32 = 0;
+}
+
+impl pallet_session::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type ValidatorId = <Self as frame_system::Config>::AccountId;
+	type ValidatorIdOf = validator_set::ValidatorOf<Self>;
+	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
+	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
+	type SessionManager = ValidatorSet;
+	type SessionHandler = <opaque::SessionKeys as OpaqueKeys>::KeyTypeIdProviders;
+	type Keys = opaque::SessionKeys;
+	type WeightInfo = ();
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub struct Runtime {
 		System: frame_system,
 		Timestamp: pallet_timestamp,
+		ValidatorSet: validator_set,
+		Session: pallet_session,
 		Aura: pallet_aura,
 		Grandpa: pallet_grandpa,
-		Sudo: pallet_sudo,
 		TransactionStorage: pallet_transaction_storage,
+		Sudo: pallet_sudo,
 	}
 );
 
