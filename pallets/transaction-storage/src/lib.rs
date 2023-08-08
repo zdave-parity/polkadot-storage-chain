@@ -173,6 +173,8 @@ pub mod pallet {
 		BadContext,
 		/// The preimage could never be submitted in a single transaction, as required.
 		Impossible,
+		/// The authorization to submit this data has expired.
+		AuthorizationExpired,
 	}
 
 	#[pallet::pallet]
@@ -578,10 +580,12 @@ pub mod pallet {
 			};
 			let now = frame_system::Pallet::<T>::block_number();
 
-			Authorizations::<T>::try_mutate_exists(scope, |maybe_authorization| -> DispatchResult {
+			Authorizations::<T>::mutate_exists(scope, |maybe_authorization| -> DispatchResult {
 				if let Some(authorization) = maybe_authorization.as_mut() {
 					if now > authorization.expiration {
+						// Some authorization existed but has expired.
 						*maybe_authorization = None;
+						return Err(Error::<T>::AuthorizationExpired.into())
 					} else {
 						let transactions = authorization
 							.extent
@@ -593,8 +597,14 @@ pub mod pallet {
 							.bytes
 							.checked_sub(size.into())
 							.ok_or(Error::<T>::NotAuthorized)?;
-						authorization.extent.transactions = transactions;
-						authorization.extent.bytes = bytes;
+						if transactions == 0 && bytes == 0 {
+							// Authorization is sufficient, but none remains. Can remove from
+							// storage.
+							*maybe_authorization = None
+						} else {
+							authorization.extent.transactions = transactions;
+							authorization.extent.bytes = bytes;
+						}
 					}
 				} else {
 					return Err(Error::<T>::NotAuthorized.into())

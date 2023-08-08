@@ -236,7 +236,6 @@ impl pallet_transaction_storage::Config for Runtime {
 	type WeightInfo = pallet_transaction_storage::weights::SubstrateWeight<Runtime>;
 	type MaxBlockTransactions = ConstU32<512>;
 	type MaxTransactionSize = ConstU32<{ 8 * 1024 * 1024 }>;
-	type MaxBlockAuthorizationExpiries = ConstU32<512>;
 	type AuthorizationPeriod = ConstU32<{ 7 * DAYS }>;
 	type StoragePeriod = ConstU32<{ 7 * DAYS }>;
 	type Authorizer = EnsureRoot<Self::AccountId>;

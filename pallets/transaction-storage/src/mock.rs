@@ -21,11 +21,8 @@ use crate::{
 	self as pallet_transaction_storage, TransactionStorageProof, DEFAULT_MAX_BLOCK_TRANSACTIONS,
 	DEFAULT_MAX_TRANSACTION_SIZE,
 };
-use frame_support::{
-	parameter_types,
-	traits::{ConstU16, ConstU32, ConstU64, OnFinalize, OnInitialize},
-};
-use frame_system::{pallet_prelude::BlockNumberFor, EnsureRoot};
+use frame_support::traits::{ConstU16, ConstU32, ConstU64, OnFinalize, OnInitialize};
+use frame_system::EnsureRoot;
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
@@ -40,7 +37,7 @@ frame_support::construct_runtime!(
 	{
 		System: frame_system::{Pallet, Call, Config<T>, Storage, Event<T>},
 		TransactionStorage: pallet_transaction_storage::{
-			Pallet, Call, Storage, Config<T>, Inherent, Event<T>
+			Pallet, Call, Storage, Inherent, Event<T>
 		},
 	}
 );
@@ -71,30 +68,19 @@ impl frame_system::Config for Test {
 	type MaxConsumers = ConstU32<16>;
 }
 
-parameter_types! {
-	pub const TransactionStorageAuthorizationPeriod: BlockNumberFor<Test> = 10;
-}
-
 impl pallet_transaction_storage::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeCall = RuntimeCall;
 	type WeightInfo = ();
 	type MaxBlockTransactions = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
 	type MaxTransactionSize = ConstU32<{ DEFAULT_MAX_TRANSACTION_SIZE }>;
-	type MaxBlockAuthorizationExpiries = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
-	type AuthorizationPeriod = TransactionStorageAuthorizationPeriod;
+	type AuthorizationPeriod = ConstU64<10>;
+	type StoragePeriod = ConstU64<10>;
 	type Authorizer = EnsureRoot<Self::AccountId>;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	let t = RuntimeGenesisConfig {
-		system: Default::default(),
-		transaction_storage: pallet_transaction_storage::GenesisConfig::<Test> {
-			storage_period: 10,
-		},
-	}
-	.build_storage()
-	.unwrap();
+	let t = RuntimeGenesisConfig { system: Default::default() }.build_storage().unwrap();
 	t.into()
 }
 

@@ -19,7 +19,7 @@
 
 use super::{Pallet as TransactionStorage, *};
 use crate::mock::*;
-use frame_support::{assert_noop, assert_ok};
+use frame_support::{assert_err, assert_noop, assert_ok};
 use frame_system::RawOrigin;
 use sp_core::blake2_256;
 use sp_transaction_storage_proof::registration::build_proof;
@@ -248,15 +248,55 @@ fn authorization_expires() {
 			TransactionStorage::<Test>::unused_account_authorization_extent(who),
 			AuthorizationExtent { transactions: 1, bytes: 2000 },
 		);
-		run_to_block(10, || None);
+		// expires after block 11
+		run_to_block(11, || None);
 		assert_eq!(
 			TransactionStorage::<Test>::unused_account_authorization_extent(who),
 			AuthorizationExtent { transactions: 1, bytes: 2000 },
 		);
-		run_to_block(11, || None);
+		// expired
+		run_to_block(12, || None);
 		assert_eq!(
 			TransactionStorage::<Test>::unused_account_authorization_extent(who),
 			AuthorizationExtent { transactions: 0, bytes: 0 },
 		);
+	});
+}
+
+#[test]
+fn expired_authorization_clears() {
+	new_test_ext().execute_with(|| {
+		run_to_block(1, || None);
+		let who = 1;
+		assert_ok!(TransactionStorage::<Test>::authorize_account(
+			RawOrigin::Root.into(),
+			who,
+			2,
+			2000
+		));
+		assert_eq!(
+			TransactionStorage::<Test>::unused_account_authorization_extent(who),
+			AuthorizationExtent { transactions: 2, bytes: 2000 },
+		);
+
+		// User uses some of the authorization, and the remaining amount gets updated appropriately.
+		run_to_block(2, || None);
+		assert_ok!(TransactionStorage::<Test>::store(
+			RawOrigin::Signed(who).into(),
+			vec![0u8; 1000]
+		));
+		assert_eq!(
+			TransactionStorage::<Test>::unused_account_authorization_extent(who),
+			AuthorizationExtent { transactions: 1, bytes: 1000 },
+		);
+
+		// User has sufficient storage authorization, but it has expired.
+		run_to_block(12, || None);
+		assert!(Authorizations::<Test>::contains_key(AuthorizationScope::Account(who)));
+		assert_err!(
+			TransactionStorage::<Test>::store(RawOrigin::Signed(who).into(), vec![0u8; 1000]),
+			Error::<Test>::AuthorizationExpired,
+		);
+		assert!(!Authorizations::<Test>::contains_key(AuthorizationScope::Account(who)));
 	});
 }
