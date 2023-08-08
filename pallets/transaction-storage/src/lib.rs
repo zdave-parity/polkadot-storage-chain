@@ -600,7 +600,7 @@ pub mod pallet {
 						if transactions == 0 && bytes == 0 {
 							// Authorization is sufficient, but none remains. Can remove from
 							// storage.
-							*maybe_authorization = None
+							*maybe_authorization = None;
 						} else {
 							authorization.extent.transactions = transactions;
 							authorization.extent.bytes = bytes;

@@ -300,3 +300,39 @@ fn expired_authorization_clears() {
 		assert!(!Authorizations::<Test>::contains_key(AuthorizationScope::Account(who)));
 	});
 }
+
+#[test]
+fn consumed_authorization_clears() {
+	new_test_ext().execute_with(|| {
+		run_to_block(1, || None);
+		let who = 1;
+		assert_ok!(TransactionStorage::<Test>::authorize_account(
+			RawOrigin::Root.into(),
+			who,
+			2,
+			2000
+		));
+		assert_eq!(
+			TransactionStorage::<Test>::unused_account_authorization_extent(who),
+			AuthorizationExtent { transactions: 2, bytes: 2000 },
+		);
+
+		// User uses some of the authorization, and the remaining amount gets updated appropriately.
+		assert_ok!(TransactionStorage::<Test>::store(
+			RawOrigin::Signed(who).into(),
+			vec![0u8; 1000]
+		));
+		// debited half the authorization
+		assert_eq!(
+			TransactionStorage::<Test>::unused_account_authorization_extent(who),
+			AuthorizationExtent { transactions: 1, bytes: 1000 },
+		);
+		// consume the remaining amount
+		assert_ok!(TransactionStorage::<Test>::store(
+			RawOrigin::Signed(who).into(),
+			vec![0u8; 1000]
+		));
+		// key should be cleared from Authorizations
+		assert!(!Authorizations::<Test>::contains_key(AuthorizationScope::Account(who)));
+	});
+}
