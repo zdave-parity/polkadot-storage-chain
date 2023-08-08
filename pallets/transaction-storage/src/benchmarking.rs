@@ -204,5 +204,27 @@ mod benchmarks {
 		Ok(())
 	}
 
+	#[benchmark]
+	fn remove_expired_authorization() -> Result<(), BenchmarkError> {
+		let origin = T::Authorizer::try_successful_origin()
+			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
+		let who: T::AccountId = whitelisted_caller();
+		let mega: u64 = 1 * 1024 * 1024;
+		let _ = TransactionStorage::<T>::authorize_account(origin, who.clone(), 1, mega)?;
+
+		let period = T::AuthorizationPeriod::get();
+		let now = frame_system::Pallet::<T>::block_number();
+
+		run_to_block::<T>(now + period + One::one());
+
+		#[extrinsic_call]
+		_(RawOrigin::None, AuthorizationScope::Account(who.clone()));
+
+		assert_last_event::<T>(
+			Event::AuthorizationRemoved { scope: AuthorizationScope::Account(who) }.into(),
+		);
+		Ok(())
+	}
+
 	impl_benchmark_test_suite!(TransactionStorage, crate::mock::new_test_ext(), crate::mock::Test);
 }

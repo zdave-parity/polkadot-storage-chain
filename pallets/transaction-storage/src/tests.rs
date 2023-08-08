@@ -19,7 +19,7 @@
 
 use super::{Pallet as TransactionStorage, *};
 use crate::mock::*;
-use frame_support::{assert_err, assert_noop, assert_ok};
+use frame_support::{assert_noop, assert_ok};
 use frame_system::RawOrigin;
 use sp_core::blake2_256;
 use sp_transaction_storage_proof::registration::build_proof;
@@ -290,13 +290,33 @@ fn expired_authorization_clears() {
 			AuthorizationExtent { transactions: 1, bytes: 1000 },
 		);
 
+		// Can't remove too early
+		run_to_block(11, || None);
+		assert_noop!(
+			TransactionStorage::<Test>::remove_expired_authorization(
+				RawOrigin::None.into(),
+				AuthorizationScope::Account(who)
+			),
+			Error::<Test>::NotExpired,
+		);
+
 		// User has sufficient storage authorization, but it has expired.
 		run_to_block(12, || None);
 		assert!(Authorizations::<Test>::contains_key(AuthorizationScope::Account(who)));
-		assert_err!(
+		// User cannot use authorization
+		assert_noop!(
 			TransactionStorage::<Test>::store(RawOrigin::Signed(who).into(), vec![0u8; 1000]),
 			Error::<Test>::AuthorizationExpired,
 		);
+		// Anyone can remove it
+		assert_ok!(TransactionStorage::<Test>::remove_expired_authorization(
+			RawOrigin::None.into(),
+			AuthorizationScope::Account(who)
+		));
+		System::assert_has_event(RuntimeEvent::TransactionStorage(
+			crate::Event::AuthorizationRemoved { scope: AuthorizationScope::Account(who) },
+		));
+		// No longer in storage
 		assert!(!Authorizations::<Test>::contains_key(AuthorizationScope::Account(who)));
 	});
 }

@@ -71,8 +71,10 @@ pub struct AuthorizationExtent {
 }
 
 /// The scope of an authorization.
-#[derive(Clone, sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
-enum AuthorizationScope<AccountId> {
+#[derive(
+	Clone, sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen, PartialEq,
+)]
+pub enum AuthorizationScope<AccountId> {
 	/// Authorization for the given account to store arbitrary data.
 	Account(AccountId),
 	/// Authorization for anyone to store data with a specific hash.
@@ -175,6 +177,8 @@ pub mod pallet {
 		Impossible,
 		/// The authorization to submit this data has expired.
 		AuthorizationExpired,
+		/// The authorization has not expired.
+		NotExpired,
 	}
 
 	#[pallet::pallet]
@@ -442,6 +446,30 @@ pub mod pallet {
 			Self::deposit_event(Event::PreimageUploadAuthorized { hash, max_size });
 			Ok(())
 		}
+
+		/// Remove an expired authorization from storage. Anyone can call this function.
+		///
+		/// Parameters:
+		///
+		/// - `scope`: The `AuthorizationScope` of the authorization to remove.
+		///
+		/// Emits `AuthorizationRemoved` when successful.
+		#[pallet::call_index(5)]
+		#[pallet::weight(T::WeightInfo::remove_expired_authorization())]
+		pub fn remove_expired_authorization(
+			_origin: OriginFor<T>,
+			scope: AuthorizationScope<T::AccountId>,
+		) -> DispatchResult {
+			let authorization = Authorizations::<T>::get(&scope);
+			let now = frame_system::Pallet::<T>::block_number();
+			if now > authorization.expiration {
+				Authorizations::<T>::remove(&scope);
+				Self::deposit_event(Event::AuthorizationRemoved { scope });
+			} else {
+				return Err(Error::<T>::NotExpired.into())
+			}
+			Ok(())
+		}
 	}
 
 	#[pallet::event]
@@ -459,6 +487,8 @@ pub mod pallet {
 		/// The preimage matching `hash` may be uploaded by anyone. The number of preimage bytes
 		/// may not exceed `max_size`.
 		PreimageUploadAuthorized { hash: [u8; 32], max_size: u64 },
+		/// An authorization was removed.
+		AuthorizationRemoved { scope: AuthorizationScope<T::AccountId> },
 	}
 
 	/// Authorization keyed by scope.
@@ -529,16 +559,23 @@ pub mod pallet {
 		) -> DispatchResult {
 			// Determine expiry block.
 			let period = T::AuthorizationPeriod::get();
-			let expiration = frame_system::Pallet::<T>::block_number()
-				.checked_add(&period)
-				.ok_or(ArithmeticError::Overflow)?;
+			let now = frame_system::Pallet::<T>::block_number();
+			let expiration = now.checked_add(&period).ok_or(ArithmeticError::Overflow)?;
 
 			// Credit scope. Note that it is possible for authorizations to get lost due to the
 			// saturating arithmetic.
 			Authorizations::<T>::mutate(scope.clone(), |authorization| {
-				authorization.extent.transactions =
-					authorization.extent.transactions.saturating_add(transactions);
-				authorization.extent.bytes = authorization.extent.bytes.saturating_add(bytes);
+				if now > authorization.expiration {
+					// Any previous authorization has expired. This is a fresh one.
+					authorization.extent.transactions = transactions;
+					authorization.extent.bytes = bytes;
+				} else {
+					// An authorization already exists. However, this new one may be for another
+					// purpose. Increase the available authorizations and extend the expiration.
+					authorization.extent.transactions =
+						authorization.extent.transactions.saturating_add(transactions);
+					authorization.extent.bytes = authorization.extent.bytes.saturating_add(bytes);
+				}
 				authorization.expiration = expiration;
 			});
 			Ok(())
@@ -583,8 +620,7 @@ pub mod pallet {
 			Authorizations::<T>::mutate_exists(scope, |maybe_authorization| -> DispatchResult {
 				if let Some(authorization) = maybe_authorization.as_mut() {
 					if now > authorization.expiration {
-						// Some authorization existed but has expired.
-						*maybe_authorization = None;
+						// Some authorization exists but has expired.
 						return Err(Error::<T>::AuthorizationExpired.into())
 					} else {
 						let transactions = authorization
