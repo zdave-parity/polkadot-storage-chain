@@ -461,8 +461,7 @@ pub mod pallet {
 			scope: AuthorizationScope<T::AccountId>,
 		) -> DispatchResult {
 			let authorization = Authorizations::<T>::take(&scope);
-			let now = frame_system::Pallet::<T>::block_number();
-			ensure!(now > authorization.expiration, Error::<T>::NotExpired);
+			ensure!(Self::expired(authorization.expiration), Error::<T>::NotExpired);
 			Self::deposit_event(Event::AuthorizationRemoved { scope });
 			Ok(())
 		}
@@ -548,6 +547,12 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		/// Check if the system is beyond an expiration point.
+		fn expired(expiration: BlockNumberFor<T>) -> bool {
+			let now = frame_system::Pallet::<T>::block_number();
+			now > expiration
+		}
+
 		fn authorize(
 			scope: AuthorizationScope<T::AccountId>,
 			transactions: u32,
@@ -561,7 +566,7 @@ pub mod pallet {
 			// Credit scope. Note that it is possible for authorizations to get lost due to the
 			// saturating arithmetic.
 			Authorizations::<T>::mutate(scope.clone(), |authorization| {
-				if now > authorization.expiration {
+				if Self::expired(authorization.expiration) {
 					// Any previous authorization has expired. This is a fresh one.
 					authorization.extent.transactions = transactions;
 					authorization.extent.bytes = bytes;
@@ -580,8 +585,7 @@ pub mod pallet {
 		/// Returns the unused extent of (unexpired) authorizations for the given account.
 		pub fn unused_account_authorization_extent(who: T::AccountId) -> AuthorizationExtent {
 			let authorization = Authorizations::<T>::get(AuthorizationScope::Account(who));
-			let now = frame_system::Pallet::<T>::block_number();
-			if now > authorization.expiration {
+			if Self::expired(authorization.expiration) {
 				// authorization extent may exist, but has expired.
 				AuthorizationExtent { transactions: 0, bytes: 0 }
 			} else {
@@ -592,8 +596,7 @@ pub mod pallet {
 		/// Returns the unused extent of (unexpired) authorizations for the given preimage.
 		pub fn unused_preimage_authorization_extent(hash: PreimageHash) -> AuthorizationExtent {
 			let authorization = Authorizations::<T>::get(AuthorizationScope::Preimage(hash));
-			let now = frame_system::Pallet::<T>::block_number();
-			if now > authorization.expiration {
+			if Self::expired(authorization.expiration) {
 				// authorization extent may exist, but has expired.
 				AuthorizationExtent { transactions: 0, bytes: 0 }
 			} else {
@@ -611,11 +614,10 @@ pub mod pallet {
 				Ok(RawOrigin::None) => AuthorizationScope::Preimage(hash),
 				_ => return Err(DispatchError::BadOrigin),
 			};
-			let now = frame_system::Pallet::<T>::block_number();
 
 			Authorizations::<T>::mutate_exists(scope, |maybe_authorization| -> DispatchResult {
 				if let Some(authorization) = maybe_authorization.as_mut() {
-					if now > authorization.expiration {
+					if Self::expired(authorization.expiration) {
 						// Some authorization exists but has expired.
 						return Err(Error::<T>::AuthorizationExpired.into())
 					} else {
