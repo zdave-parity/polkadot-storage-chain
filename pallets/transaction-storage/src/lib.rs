@@ -553,6 +553,7 @@ pub mod pallet {
 			now > expiration
 		}
 
+		/// Authorize an `AuthorizationScope` to store some data.
 		fn authorize(
 			scope: AuthorizationScope<T::AccountId>,
 			transactions: u32,
@@ -604,6 +605,8 @@ pub mod pallet {
 			}
 		}
 
+		/// Check if the caller or data has an authorization, and then debit existing authorization
+		/// extent if it exists and has not expired.
 		fn use_authorization(
 			origin: OriginFor<T>,
 			hash: PreimageHash,
@@ -617,28 +620,29 @@ pub mod pallet {
 
 			Authorizations::<T>::mutate_exists(scope, |maybe_authorization| -> DispatchResult {
 				if let Some(authorization) = maybe_authorization.as_mut() {
-					if Self::expired(authorization.expiration) {
-						// Some authorization exists but has expired.
-						return Err(Error::<T>::AuthorizationExpired.into())
+					ensure!(
+						!Self::expired(authorization.expiration),
+						Error::<T>::AuthorizationExpired
+					);
+
+					let transactions = authorization
+						.extent
+						.transactions
+						.checked_sub(1)
+						.ok_or(Error::<T>::NotAuthorized)?;
+					let bytes = authorization
+						.extent
+						.bytes
+						.checked_sub(size.into())
+						.ok_or(Error::<T>::NotAuthorized)?;
+
+					if transactions == 0 && bytes == 0 {
+						// Authorization is sufficient, but none remains. Can remove from
+						// storage.
+						*maybe_authorization = None;
 					} else {
-						let transactions = authorization
-							.extent
-							.transactions
-							.checked_sub(1)
-							.ok_or(Error::<T>::NotAuthorized)?;
-						let bytes = authorization
-							.extent
-							.bytes
-							.checked_sub(size.into())
-							.ok_or(Error::<T>::NotAuthorized)?;
-						if transactions == 0 && bytes == 0 {
-							// Authorization is sufficient, but none remains. Can remove from
-							// storage.
-							*maybe_authorization = None;
-						} else {
-							authorization.extent.transactions = transactions;
-							authorization.extent.bytes = bytes;
-						}
+						authorization.extent.transactions = transactions;
+						authorization.extent.bytes = bytes;
 					}
 				} else {
 					return Err(Error::<T>::NotAuthorized.into())
