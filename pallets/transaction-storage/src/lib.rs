@@ -460,14 +460,10 @@ pub mod pallet {
 			_origin: OriginFor<T>,
 			scope: AuthorizationScope<T::AccountId>,
 		) -> DispatchResult {
-			let authorization = Authorizations::<T>::get(&scope);
+			let authorization = Authorizations::<T>::take(&scope);
 			let now = frame_system::Pallet::<T>::block_number();
-			if now > authorization.expiration {
-				Authorizations::<T>::remove(&scope);
-				Self::deposit_event(Event::AuthorizationRemoved { scope });
-			} else {
-				return Err(Error::<T>::NotExpired.into())
-			}
+			ensure!(now > authorization.expiration, Error::<T>::NotExpired);
+			Self::deposit_event(Event::AuthorizationRemoved { scope });
 			Ok(())
 		}
 	}
