@@ -218,16 +218,16 @@ parameter_types! {
 		28,
 		"DOT_BONDING_DURATION"
 	);
-  // TODO: Find out what is a correct value for this Chain
+  	// TODO: Find out what is a correct value for this Chain
 	pub ReportLongevity: u64 =
 		BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
-  // TODO: Find out what is a correct value for this Chain
-  pub const MaxAuthorities: u32 = 100;
+  	// TODO: Find out what is a correct value for this Chain
+	pub const MaxAuthorities: u32 = 100;
 }
 
 impl pallet_aura::Config for Runtime {
 	type AuthorityId = AuraId;
-	type DisabledValidators = ();
+	type DisabledValidators = Session;
 	type MaxAuthorities =  MaxAuthorities;
 	type AllowMultipleBlocksPerSlot = ConstBool<false>;
 }
@@ -239,11 +239,9 @@ parameter_types! {
 
 impl pallet_grandpa::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-
 	type WeightInfo = ();
 	type MaxAuthorities =  MaxAuthorities;
 	type MaxSetIdSessionEntries = MaxSetIdSessionEntries;
-
 	type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
 	type EquivocationReportSystem =
 		pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
