@@ -42,6 +42,7 @@ sp-transaction-storage-proof = { version = "4.0.0-dev", git = "https://github.co
 sp-inherents = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 sp-keyring = { version = "24.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 frame-system = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
+pallet-im-online = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
 
 # These dependencies are used for the node's RPCs
 jsonrpsee = { version = "0.16.2", features = ["server"] }

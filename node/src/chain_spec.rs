@@ -1,12 +1,14 @@
 use polkadot_bulletin_chain_runtime::{
-	AccountId, AuraConfig, GrandpaConfig, RuntimeGenesisConfig, SessionConfig, Signature,
-	SudoConfig, SystemConfig, ValidatorSetConfig, WASM_BINARY, opaque::SessionKeys,
+	AccountId, AuraConfig, ImOnlineConfig, GrandpaConfig, RuntimeGenesisConfig,
+	SessionConfig, Signature, SudoConfig, SystemConfig, ValidatorSetConfig,
+	WASM_BINARY, opaque::SessionKeys,
 };
 use sc_service::ChainType;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{sr25519, Pair, Public};
 use sp_runtime::traits::{IdentifyAccount, Verify};
+use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 
 // The URL for the telemetry server.
 // const STAGING_TELEMETRY_URL: &str = "wss://telemetry.polkadot.io/submit/";
@@ -32,16 +34,17 @@ where
 }
 
 /// Generate an Aura authority key.
-pub fn authority_keys_from_seed(s: &str) -> (AccountId, AuraId, GrandpaId) {
+pub fn authority_keys_from_seed(s: &str) -> (AccountId, AuraId, GrandpaId, ImOnlineId) {
 	(
 		get_account_id_from_seed::<sr25519::Public>(s),
 		get_from_seed::<AuraId>(s),
-		get_from_seed::<GrandpaId>(s)
+		get_from_seed::<GrandpaId>(s),
+		get_from_seed::<ImOnlineId>(s),
 	)
 }
 
-fn session_keys(aura: AuraId, grandpa: GrandpaId) -> SessionKeys {
-	SessionKeys { aura, grandpa }
+fn session_keys(aura: AuraId, grandpa: GrandpaId, im_online: ImOnlineId) -> SessionKeys {
+	SessionKeys { aura, grandpa, im_online }
 }
 
 pub fn development_config() -> Result<ChainSpec, String> {
@@ -113,7 +116,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 /// Configure initial storage state for FRAME modules.
 fn testnet_genesis(
 	wasm_binary: &[u8],
-	initial_authorities: Vec<(AccountId, AuraId, GrandpaId)>,
+	initial_authorities: Vec<(AccountId, AuraId, GrandpaId, ImOnlineId)>,
 	root_key: AccountId,
 	_enable_println: bool,
 ) -> RuntimeGenesisConfig {
@@ -128,7 +131,7 @@ fn testnet_genesis(
 		},
 		session: SessionConfig {
 			keys: initial_authorities.iter().map(|x| {
-				(x.0.clone(), x.0.clone(), session_keys(x.1.clone(), x.2.clone()))
+				(x.0.clone(), x.0.clone(), session_keys(x.1.clone(), x.2.clone(),  x.3.clone()))
 			}).collect(),
 		},
 		aura: AuraConfig {
@@ -138,6 +141,7 @@ fn testnet_genesis(
 			authorities: vec![],
 			..Default::default()
 		},
+		im_online: ImOnlineConfig { keys: vec![] },
 		transaction_storage: Default::default(),
 		sudo: SudoConfig {
 			// Assign network admin rights.
