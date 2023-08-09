@@ -4,6 +4,7 @@ members = [
     "node",
     "pallets/transaction-storage",
     "runtime",
+    "runtime/constants",
 ]
 [profile.release]
 panic = "unwind"

@@ -50,10 +50,11 @@ frame-benchmarking = { version = "4.0.0-dev", default-features = false, git = "h
 frame-system-benchmarking = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", optional = true, branch = "polkadot-v1.0.0" }
 
 # Polkadot
-# runtime-common = { package = "polkadot-runtime-common", git = "https://github.com/paritytech/polkadot.git", default-features = false,  branch = "release-v1.0.0" }
+runtime-common = { package = "polkadot-runtime-common", git = "https://github.com/paritytech/polkadot.git", default-features = false,  branch = "release-v1.0.0" }
 # polkadot-primitives = { package = "polkadot-primitives",  git = "https://github.com/paritytech/polkadot.git", default-features = false,  branch = "release-v1.0.0" }
 
 # Local dependencies
+polkadot-bulletin-chain-constants = { package = "polkadot-bulletin-chain-constants", path = "./constants", default-features = false }
 pallet-transaction-storage = { version = "4.0.0-dev", default-features = false, path = "../pallets/transaction-storage" }
 
 [build-dependencies]
@@ -94,6 +95,7 @@ std = [
 	"sp-version/std",
 	"substrate-wasm-builder",
 	"substrate-validator-set/std",
+	"polkadot-bulletin-chain-constants/std"
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

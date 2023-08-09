@@ -27,7 +27,10 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 use substrate_validator_set as validator_set;
-// use runtime_common::prod_or_fast;
+use runtime_common::prod_or_fast;
+
+/// Constant values used within the runtime.
+use polkadot_bulletin_chain_constants::time::*;
 
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
@@ -201,22 +204,49 @@ impl frame_system::Config for Runtime {
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
 }
 
+parameter_types! {
+	pub EpochDuration: u64 = prod_or_fast!(
+		EPOCH_DURATION_IN_SLOTS as u64,
+		2 * MINUTES as u64,
+		"BC_EPOCH_DURATION"
+	);
+	// Six sessions in an era (6 hours).
+	pub const SessionsPerEra: u32 = prod_or_fast!(6, 1);
+	// 28 eras for unbonding (7 days).
+	pub BondingDuration: u32 = prod_or_fast!(
+		28,
+		28,
+		"DOT_BONDING_DURATION"
+	);
+  // TODO: Find out what is a correct value for this Chain
+	pub ReportLongevity: u64 =
+		BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
+  // TODO: Find out what is a correct value for this Chain
+  pub const MaxAuthorities: u32 = 100;
+}
+
 impl pallet_aura::Config for Runtime {
 	type AuthorityId = AuraId;
 	type DisabledValidators = ();
-	type MaxAuthorities = ConstU32<32>;
+	type MaxAuthorities =  MaxAuthorities;
 	type AllowMultipleBlocksPerSlot = ConstBool<false>;
+}
+
+parameter_types! {
+  // TODO: Find out what is a correct value for this Chain
+	pub MaxSetIdSessionEntries: u32 = BondingDuration::get() * SessionsPerEra::get();
 }
 
 impl pallet_grandpa::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 
 	type WeightInfo = ();
-	type MaxAuthorities = ConstU32<32>;
-	type MaxSetIdSessionEntries = ConstU64<0>;
+	type MaxAuthorities =  MaxAuthorities;
+	type MaxSetIdSessionEntries = MaxSetIdSessionEntries;
 
-	type KeyOwnerProof = sp_core::Void;
-	type EquivocationReportSystem = ();
+	type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
+	type EquivocationReportSystem =
+		pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -282,8 +312,8 @@ impl pallet_authorship::Config for Runtime {
 }
 
 impl pallet_session::historical::Config for Runtime {
-	type FullIdentification = ();
-	type FullIdentificationOf = ();
+	type FullIdentification = Self::ValidatorId;
+	type FullIdentificationOf = Self::ValidatorIdOf;
 }
 
 impl pallet_offences::Config for Runtime {
