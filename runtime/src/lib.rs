@@ -288,6 +288,7 @@ impl validator_set::Config for Runtime {
 }
 
 parameter_types! {
+	// TODO: Find out what is a correct value for this Chain
 	pub const Period: u32 = 2 * MINUTES;
 	pub const Offset: u32 = 0;
 }
@@ -317,7 +318,7 @@ impl pallet_session::historical::Config for Runtime {
 impl pallet_offences::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IdentificationTuple = pallet_session::historical::IdentificationTuple<Self>;
-	type OnOffenceHandler = ();
+	type OnOffenceHandler = ValidatorSet;
 }
 
 parameter_types! {

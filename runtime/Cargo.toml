@@ -40,7 +40,8 @@ sp-session = { version = "4.0.0-dev", default-features = false, git = "https://g
 sp-std = { version = "8.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 sp-transaction-pool = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 sp-version = { version = "22.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
-substrate-validator-set = { version = "1.0.0", default-features = false, git = "https://github.com/NachoPal/substrate-validator-set.git", branch = "polkadot-v1.0.0" }
+# substrate-validator-set = { version = "1.0.0", default-features = false, git = "https://github.com/NachoPal/substrate-validator-set.git", branch = "polkadot-v1.0.0" }
+substrate-validator-set = { version = "1.0.0", default-features = false, git = "https://github.com/NachoPal/substrate-validator-set.git", branch = "nacho/add-on-offence-handler" }
 
 # Used for the node's RPCs
 frame-system-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }

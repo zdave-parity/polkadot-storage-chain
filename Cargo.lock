@@ -8767,7 +8767,7 @@ dependencies = [
 [[package]]
 name = "substrate-validator-set"
 version = "1.0.0"
-source = "git+https://github.com/NachoPal/substrate-validator-set.git?branch=polkadot-v1.0.0#8bef892faa0c68860c8d94409c5eced4ac2e87d6"
+source = "git+https://github.com/NachoPal/substrate-validator-set.git?branch=nacho/add-on-offence-handler#554cb948d1ecc4b313f925e8fc38b5856108dd95"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
