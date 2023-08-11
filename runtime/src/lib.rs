@@ -278,12 +278,15 @@ impl pallet_transaction_storage::Config for Runtime {
 
 parameter_types! {
 	pub const MinAuthorities: u32 = 2;
+	pub const MinAuthoritiesOnDisabled: bool = true;
 }
 
 impl validator_set::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type AddRemoveOrigin = EnsureRoot<AccountId>;
 	type MinAuthorities = MinAuthorities;
+	type OnDisabled = ();
+	type MinAuthoritiesOnDisabled = MinAuthoritiesOnDisabled;
 	type WeightInfo = validator_set::weights::SubstrateWeight<Runtime>;
 }
 
