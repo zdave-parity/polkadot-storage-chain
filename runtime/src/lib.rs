@@ -125,7 +125,9 @@ pub fn native_version() -> NativeVersion {
 	NativeVersion { runtime_version: VERSION, can_author_with: Default::default() }
 }
 
-const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
+// There are fewer system operations on this chain (e.g. staking, governance, etc.). Use a higher
+// percentage of the block for data storage.
+const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(90);
 
 parameter_types! {
 	pub const BlockHashCount: BlockNumber = 2400;
@@ -136,8 +138,10 @@ parameter_types! {
 			Weight::from_parts(2u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
 			NORMAL_DISPATCH_RATIO,
 		);
+	// Note: Max transaction size is 8 MB. Set max block size to 10 MB to facilitate data storage.
+	// This is double the "normal" Relay Chain block length limit.
 	pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength
-		::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
+		::max_with_normal_ratio(10 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
 	pub const SS58Prefix: u8 = 42;
 }
 
