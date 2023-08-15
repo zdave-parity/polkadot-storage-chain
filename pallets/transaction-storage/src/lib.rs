@@ -64,7 +64,7 @@ pub struct AuthorizationExtent {
 	pub bytes: u64,
 }
 
-/// For tracking usage of authorizations for a particular account or preimage.
+/// For tracking usage of authorizations for a particular account or content hash.
 #[derive(Default, PartialEq, Eq, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
 struct AuthorizationUsage {
 	/// Extent of (unexpired) authorizations used. When an authorization expires, it consumes from
@@ -74,8 +74,8 @@ struct AuthorizationUsage {
 	unused: AuthorizationExtent,
 }
 
-/// Preimage of a stored blob of data.
-type Preimage = [u8; 32];
+/// Hash of a stored blob of data.
+type ContentHash = [u8; 32];
 
 /// The scope of an authorization.
 #[derive(Clone, sp_runtime::RuntimeDebug, Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
@@ -83,7 +83,7 @@ enum AuthorizationScope<AccountId> {
 	/// Authorization for the given account to store arbitrary data.
 	Account(AccountId),
 	/// Authorization for anyone to store data with a specific hash.
-	Preimage(Preimage),
+	Preimage(ContentHash),
 }
 
 /// An authorization to store data.
@@ -384,17 +384,17 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Authorize anyone to store a blob up to the given size with the given preimage. The
-		/// authorization will expire after a configured number of blocks.
+		/// Authorize anyone to store a preimage of the given hash. The authorization will expire
+		/// after a configured number of blocks.
 		#[pallet::call_index(4)]
 		#[pallet::weight(1)] // TODO
 		pub fn authorize_preimage(
 			origin: OriginFor<T>,
-			preimage: Preimage,
+			hash: ContentHash,
 			bytes: u64,
 		) -> DispatchResult {
 			T::Authorizer::ensure_origin(origin)?;
-			Self::authorize(AuthorizationScope::Preimage(preimage), 1, bytes);
+			Self::authorize(AuthorizationScope::Preimage(hash), 1, bytes);
 			Ok(())
 		}
 	}
@@ -556,9 +556,9 @@ pub mod pallet {
 			AuthorizationUsageByScope::<T>::get(AuthorizationScope::Account(who)).unused
 		}
 
-		/// Returns the unused extent of (unexpired) authorizations for the given preimage.
-		pub fn unused_preimage_authorization_extent(preimage: Preimage) -> AuthorizationExtent {
-			AuthorizationUsageByScope::<T>::get(AuthorizationScope::Preimage(preimage)).unused
+		/// Returns the unused extent of (unexpired) authorizations for the given content hash.
+		pub fn unused_preimage_authorization_extent(hash: ContentHash) -> AuthorizationExtent {
+			AuthorizationUsageByScope::<T>::get(AuthorizationScope::Preimage(hash)).unused
 		}
 
 		fn expire_authorizations(block: BlockNumberFor<T>) -> Weight {
@@ -595,14 +595,10 @@ pub mod pallet {
 			weight
 		}
 
-		fn use_authorization(
-			origin: OriginFor<T>,
-			preimage: Preimage,
-			size: u32,
-		) -> DispatchResult {
+		fn use_authorization(origin: OriginFor<T>, hash: ContentHash, size: u32) -> DispatchResult {
 			let scope = match origin.into() {
 				Ok(RawOrigin::Signed(who)) => AuthorizationScope::Account(who),
-				Ok(RawOrigin::None) => AuthorizationScope::Preimage(preimage),
+				Ok(RawOrigin::None) => AuthorizationScope::Preimage(hash),
 				_ => return Err(DispatchError::BadOrigin),
 			};
 			AuthorizationUsageByScope::<T>::try_mutate(scope, |usage| {

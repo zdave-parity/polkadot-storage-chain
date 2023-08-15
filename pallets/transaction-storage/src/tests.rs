@@ -107,14 +107,14 @@ fn uses_preimage_authorization() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let data = vec![2; 2000];
-		let preimage = blake2_256(&data);
+		let hash = blake2_256(&data);
 		assert_ok!(TransactionStorage::<Test>::authorize_preimage(
 			RawOrigin::Root.into(),
-			preimage,
+			hash,
 			2002
 		));
 		assert_eq!(
-			TransactionStorage::<Test>::unused_preimage_authorization_extent(preimage),
+			TransactionStorage::<Test>::unused_preimage_authorization_extent(hash),
 			AuthorizationExtent { transactions: 1, bytes: 2002 }
 		);
 		assert_noop!(
@@ -123,7 +123,7 @@ fn uses_preimage_authorization() {
 		);
 		assert_ok!(TransactionStorage::<Test>::store(RawOrigin::None.into(), data.clone()));
 		assert_eq!(
-			TransactionStorage::<Test>::unused_preimage_authorization_extent(preimage),
+			TransactionStorage::<Test>::unused_preimage_authorization_extent(hash),
 			AuthorizationExtent { transactions: 0, bytes: 2 }
 		);
 		run_to_block(3, || None);
@@ -137,7 +137,7 @@ fn uses_preimage_authorization() {
 		);
 		assert_ok!(TransactionStorage::<Test>::authorize_preimage(
 			RawOrigin::Root.into(),
-			preimage,
+			hash,
 			2000
 		));
 		assert_ok!(TransactionStorage::<Test>::renew(
@@ -146,7 +146,7 @@ fn uses_preimage_authorization() {
 			0, // transaction
 		));
 		assert_eq!(
-			TransactionStorage::<Test>::unused_preimage_authorization_extent(preimage),
+			TransactionStorage::<Test>::unused_preimage_authorization_extent(hash),
 			AuthorizationExtent { transactions: 0, bytes: 2 }
 		);
 	});
