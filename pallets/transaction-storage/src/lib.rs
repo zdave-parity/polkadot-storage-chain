@@ -264,8 +264,7 @@ pub mod pallet {
 						content_hash: content_hash.into(),
 						block_chunks: total_chunks,
 					})
-					.map_err(|_| Error::<T>::TooManyTransactions)?;
-				Ok(())
+					.map_err(|_| Error::<T>::TooManyTransactions)
 			})?;
 			Self::deposit_event(Event::Stored { index });
 			Ok(())
