@@ -380,7 +380,8 @@ pub mod pallet {
 			bytes: u64,
 		) -> DispatchResult {
 			T::Authorizer::ensure_origin(origin)?;
-			Self::authorize(AuthorizationScope::Account(who), transactions, bytes);
+			Self::authorize(AuthorizationScope::Account(who.clone()), transactions, bytes);
+			Self::deposit_event(Event::AccountAuthorized { who, transactions, bytes });
 			Ok(())
 		}
 
@@ -391,10 +392,11 @@ pub mod pallet {
 		pub fn authorize_preimage(
 			origin: OriginFor<T>,
 			hash: ContentHash,
-			bytes: u64,
+			max_size: u64,
 		) -> DispatchResult {
 			T::Authorizer::ensure_origin(origin)?;
-			Self::authorize(AuthorizationScope::Preimage(hash), 1, bytes);
+			Self::authorize(AuthorizationScope::Preimage(hash), 1, max_size);
+			Self::deposit_event(Event::PreimageAuthorized { hash, max_size });
 			Ok(())
 		}
 	}
@@ -408,6 +410,11 @@ pub mod pallet {
 		Renewed { index: u32 },
 		/// Storage proof was successfully checked.
 		ProofChecked,
+		/// An account `who` was authorized to store `bytes` bytes in `transactions` transactions.
+		AccountAuthorized { who: T::AccountId, transactions: u32, bytes: u64 },
+		/// Authorization was given for a preimage of `hash` (not exceeding `max_size`) to be
+		/// stored by anyone.
+		PreimageAuthorized { hash: ContentHash, max_size: u64 },
 	}
 
 	/// Authorization usage by scope.
