@@ -187,19 +187,19 @@ pub mod pallet {
 
 			// Drop obsolete roots. The proof for `obsolete` will be checked later
 			// in this block, so we drop `obsolete` - 1.
-			weight += db_weight.reads(1);
+			weight.saturating_accrue(db_weight.reads(1));
 			let period = <StoragePeriod<T>>::get();
 			let obsolete = n.saturating_sub(period.saturating_add(One::one()));
 			if obsolete > Zero::zero() {
-				weight += db_weight.writes(2);
+				weight.saturating_accrue(db_weight.writes(2));
 				<Transactions<T>>::remove(obsolete);
 				<ChunkCount<T>>::remove(obsolete);
 			}
 
-			weight += Self::expire_authorizations(n);
+			weight.saturating_accrue(Self::expire_authorizations(n));
 
 			// For `on_finalize`
-			weight += db_weight.reads_writes(2, 2);
+			weight.saturating_accrue(db_weight.reads_writes(2, 2));
 
 			weight
 		}
@@ -572,9 +572,9 @@ pub mod pallet {
 			let mut weight = Weight::zero();
 			let db_weight = T::DbWeight::get();
 
-			weight += db_weight.reads(1);
+			weight.saturating_accrue(db_weight.reads(1));
 			for authorization in AuthorizationsByExpiry::<T>::take(block) {
-				weight += db_weight.reads_writes(1, 1);
+				weight.saturating_accrue(db_weight.reads_writes(1, 1));
 				AuthorizationUsageByScope::<T>::mutate_exists(authorization.scope, |usage_slot| {
 					if let Some(usage) = usage_slot {
 						let unused_transactions = authorization
