@@ -226,6 +226,19 @@ pub mod pallet {
 				<Transactions<T>>::insert(n, transactions);
 			}
 		}
+
+		fn integrity_test() {
+			assert!(
+				!T::MaxBlockTransactions::get().is_zero(),
+				"Not useful if data cannot be stored"
+			);
+			assert!(!T::MaxTransactionSize::get().is_zero(), "Not useful if data cannot be stored");
+			assert!(!T::StoragePeriod::get().is_zero(), "Not useful if data is not stored");
+			assert!(
+				!T::AuthorizationPeriod::get().is_zero(),
+				"Not useful if authorizations are never valid"
+			);
+		}
 	}
 
 	#[pallet::call]
