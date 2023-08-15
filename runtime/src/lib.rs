@@ -226,7 +226,10 @@ impl pallet_sudo::Config for Runtime {
 }
 
 parameter_types! {
-	pub const TransactionStorageAuthorizationPeriod: BlockNumber = 100800;
+	// This currently _must_ be set to DEFAULT_STORAGE_PERIOD
+	pub const TransactionStorageStoragePeriod: BlockNumber =
+		sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD;
+	pub const TransactionStorageAuthorizationPeriod: BlockNumber = 7 * DAYS;
 }
 
 impl pallet_transaction_storage::Config for Runtime {
@@ -235,6 +238,7 @@ impl pallet_transaction_storage::Config for Runtime {
 	type WeightInfo = pallet_transaction_storage::weights::SubstrateWeight<Runtime>;
 	type MaxBlockTransactions = ConstU32<512>;
 	type MaxTransactionSize = ConstU32<{ 8 * 1024 * 1024 }>;
+	type StoragePeriod = TransactionStorageStoragePeriod;
 	type MaxBlockAuthorizationExpiries = ConstU32<512>;
 	type AuthorizationPeriod = TransactionStorageAuthorizationPeriod;
 	type Authorizer = EnsureRoot<Self::AccountId>;

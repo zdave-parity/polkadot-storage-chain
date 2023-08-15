@@ -5099,6 +5099,7 @@ dependencies = [
  "sp-session",
  "sp-std",
  "sp-transaction-pool",
+ "sp-transaction-storage-proof",
  "sp-version",
  "substrate-wasm-builder",
 ]

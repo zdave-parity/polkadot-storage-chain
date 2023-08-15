@@ -143,6 +143,9 @@ pub mod pallet {
 		type MaxBlockTransactions: Get<u32>;
 		/// Maximum data set in a single transaction in bytes.
 		type MaxTransactionSize: Get<u32>;
+		/// Storage period for data in blocks. Should match [`DEFAULT_STORAGE_PERIOD`] for block
+		/// authoring.
+		type StoragePeriod: Get<BlockNumberFor<Self>>;
 		/// Maximum number of authorization expiries per block. Authorizations will be extended to
 		/// avoid exceeding this limit.
 		type MaxBlockAuthorizationExpiries: Get<u32>;
@@ -188,7 +191,7 @@ pub mod pallet {
 			// Drop obsolete roots. The proof for `obsolete` will be checked later
 			// in this block, so we drop `obsolete` - 1.
 			weight.saturating_accrue(db_weight.reads(1));
-			let period = <StoragePeriod<T>>::get();
+			let period = T::StoragePeriod::get();
 			let obsolete = n.saturating_sub(period.saturating_add(One::one()));
 			if obsolete > Zero::zero() {
 				weight.saturating_accrue(db_weight.writes(2));
@@ -209,7 +212,7 @@ pub mod pallet {
 				<ProofChecked<T>>::take() || {
 					// Proof is not required for early or empty blocks.
 					let number = <frame_system::Pallet<T>>::block_number();
-					let period = <StoragePeriod<T>>::get();
+					let period = T::StoragePeriod::get();
 					let target_number = number.saturating_sub(period);
 					target_number.is_zero() || <ChunkCount<T>>::get(target_number) == 0
 				},
@@ -228,7 +231,7 @@ pub mod pallet {
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		/// Index and store data off chain. Minimum data size is 1 bytes, maximum is
-		/// `MaxTransactionSize`. Data will be removed after `STORAGE_PERIOD` blocks, unless `renew`
+		/// `MaxTransactionSize`. Data will be removed after `StoragePeriod` blocks, unless `renew`
 		/// is called.
 		/// ## Complexity
 		/// - O(n*log(n)) of data size, as all data is pushed to an in-memory trie.
@@ -325,7 +328,7 @@ pub mod pallet {
 			ensure_none(origin)?;
 			ensure!(!ProofChecked::<T>::get(), Error::<T>::DoubleCheck);
 			let number = <frame_system::Pallet<T>>::block_number();
-			let period = <StoragePeriod<T>>::get();
+			let period = T::StoragePeriod::get();
 			let target_number = number.saturating_sub(period);
 			ensure!(!target_number.is_zero(), Error::<T>::UnexpectedProof);
 			let total_chunks = <ChunkCount<T>>::get(target_number);
@@ -453,11 +456,6 @@ pub mod pallet {
 	pub(super) type ChunkCount<T: Config> =
 		StorageMap<_, Blake2_128Concat, BlockNumberFor<T>, u32, ValueQuery>;
 
-	/// Storage period for data in blocks. Should match `sp_storage_proof::DEFAULT_STORAGE_PERIOD`
-	/// for block authoring.
-	#[pallet::storage]
-	pub(super) type StoragePeriod<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
-
 	// Intermediates
 	#[pallet::storage]
 	pub(super) type BlockTransactions<T: Config> =
@@ -466,24 +464,6 @@ pub mod pallet {
 	/// Was the proof checked in this block?
 	#[pallet::storage]
 	pub(super) type ProofChecked<T: Config> = StorageValue<_, bool, ValueQuery>;
-
-	#[pallet::genesis_config]
-	pub struct GenesisConfig<T: Config> {
-		pub storage_period: BlockNumberFor<T>,
-	}
-
-	impl<T: Config> Default for GenesisConfig<T> {
-		fn default() -> Self {
-			Self { storage_period: sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD.into() }
-		}
-	}
-
-	#[pallet::genesis_build]
-	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
-		fn build(&self) {
-			<StoragePeriod<T>>::put(self.storage_period);
-		}
-	}
 
 	#[pallet::inherent]
 	impl<T: Config> ProvideInherent for Pallet<T> {
