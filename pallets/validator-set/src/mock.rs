@@ -56,8 +56,7 @@ impl OpaqueKeys for PreUpgradeMockSessionKeys {
 type Block = frame_system::mocking::MockBlock<Test>;
 
 frame_support::construct_runtime!(
-	pub struct Test
-	{
+	pub struct Test {
 		System: frame_system,
 		ValidatorSet: validator_set,
 		Session: pallet_session,
@@ -181,8 +180,8 @@ impl validator_set::Config for Test {
 	type AddRemoveOrigin = EnsureRoot<Self::AccountId>;
 	type RuntimeEvent = RuntimeEvent;
 	type MinAuthorities = MinAuthorities;
-  type OnDisabled = ();
-  type MinAuthoritiesOnDisabled = MinAuthoritiesOnDisabled;
+	type OnDisabled = ();
+	type MinAuthoritiesOnDisabled = MinAuthoritiesOnDisabled;
 	type WeightInfo = ();
 }
 
