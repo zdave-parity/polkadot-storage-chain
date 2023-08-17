@@ -1,5 +1,5 @@
 [package]
-name = 'substrate-validator-set'
+name = 'pallet-validator-set'
 version = '1.0.0'
 authors = ['Gautam Dhameja <quasijatt@outlook.com>']
 edition = '2021'
