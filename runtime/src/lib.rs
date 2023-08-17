@@ -8,13 +8,17 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 use frame_system::EnsureRoot;
 use pallet_grandpa::AuthorityId as GrandpaId;
+use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
-	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify},
-	transaction_validity::{TransactionSource, TransactionValidity},
+	traits::{
+		AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, OpaqueKeys,
+		Verify,
+	},
+	transaction_validity::{TransactionPriority, TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
 };
 use sp_std::prelude::*;
@@ -79,6 +83,7 @@ pub mod opaque {
 		pub struct SessionKeys {
 			pub aura: Aura,
 			pub grandpa: Grandpa,
+			pub im_online: ImOnline,
 		}
 	}
 }
@@ -114,6 +119,14 @@ pub const MILLISECS_PER_BLOCK: u64 = 6000;
 //       Attempting to do so will brick block production.
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 
+// NOTE: Currently it is not possible to change the session duration after the chain has started.
+//       Attempting to do so will brick block production.
+pub const SESSION_DURATION_IN_BLOCKS: BlockNumber = 1 * HOURS;
+pub const SESSION_DURATION_IN_SLOTS: u64 = {
+	const SLOT_FILL_RATE: f64 = MILLISECS_PER_BLOCK as f64 / SLOT_DURATION as f64;
+	(SESSION_DURATION_IN_BLOCKS as f64 * SLOT_FILL_RATE) as u64
+};
+
 // Time is measured by number of blocks.
 pub const MINUTES: BlockNumber = 60_000 / (MILLISECS_PER_BLOCK as BlockNumber);
 pub const HOURS: BlockNumber = MINUTES * 60;
@@ -143,6 +156,20 @@ parameter_types! {
 	pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength
 		::max_with_normal_ratio(10 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
 	pub const SS58Prefix: u8 = 42;
+
+	pub const MinAuthorities: u32 = 2; // TODO
+	pub const MaxAuthorities: u32 = 100; // TODO
+
+	pub const EquivocationReportPeriodInSessions: u64 = 168;
+	pub const EquivocationReportPeriodInBlocks: u64 =
+		EquivocationReportPeriodInSessions::get() * (SESSION_DURATION_IN_BLOCKS as u64);
+
+	pub const ImOnlineUnsignedPriority: TransactionPriority = TransactionPriority::max_value();
+
+	// This currently _must_ be set to DEFAULT_STORAGE_PERIOD
+	pub const TransactionStorageStoragePeriod: BlockNumber =
+		sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD;
+	pub const TransactionStorageAuthorizationPeriod: BlockNumber = 7 * DAYS;
 }
 
 // Configure FRAME pallets to include in runtime.
@@ -197,10 +224,40 @@ impl frame_system::Config for Runtime {
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
 }
 
+impl pallet_validator_set::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type AddRemoveOrigin = EnsureRoot<AccountId>;
+	type MinAuthorities = MinAuthorities;
+	type OnDisabled = ();
+	type MinAuthoritiesOnDisabled = ConstBool<true>;
+	type WeightInfo = pallet_validator_set::weights::SubstrateWeight<Runtime>;
+}
+
+// TODO BABE
+type SessionRotation =
+	pallet_session::PeriodicSessions<ConstU32<{ SESSION_DURATION_IN_BLOCKS }>, ConstU32<0>>;
+
+impl pallet_session::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type ValidatorId = AccountId;
+	type ValidatorIdOf = pallet_validator_set::ValidatorOf<Self>;
+	type ShouldEndSession = SessionRotation;
+	type NextSessionRotation = SessionRotation;
+	type SessionManager = ValidatorSet;
+	type SessionHandler = <opaque::SessionKeys as OpaqueKeys>::KeyTypeIdProviders;
+	type Keys = opaque::SessionKeys;
+	type WeightInfo = pallet_session::weights::SubstrateWeight<Runtime>;
+}
+
+impl pallet_session::historical::Config for Runtime {
+	type FullIdentification = Self::ValidatorId;
+	type FullIdentificationOf = Self::ValidatorIdOf;
+}
+
 impl pallet_aura::Config for Runtime {
 	type AuthorityId = AuraId;
-	type DisabledValidators = ();
-	type MaxAuthorities = ConstU32<32>;
+	type DisabledValidators = Session;
+	type MaxAuthorities = MaxAuthorities;
 	type AllowMultipleBlocksPerSlot = ConstBool<false>;
 }
 
@@ -208,11 +265,39 @@ impl pallet_grandpa::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 
 	type WeightInfo = ();
-	type MaxAuthorities = ConstU32<32>;
-	type MaxSetIdSessionEntries = ConstU64<0>;
+	type MaxAuthorities = MaxAuthorities;
+	type MaxSetIdSessionEntries = EquivocationReportPeriodInSessions;
 
-	type KeyOwnerProof = sp_core::Void;
-	type EquivocationReportSystem = ();
+	type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
+	type EquivocationReportSystem = pallet_grandpa::EquivocationReportSystem<
+		Self,
+		Offences,
+		Historical,
+		EquivocationReportPeriodInBlocks,
+	>;
+}
+
+impl pallet_offences::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type IdentificationTuple = pallet_session::historical::IdentificationTuple<Self>;
+	type OnOffenceHandler = ValidatorSet;
+}
+
+impl pallet_authorship::Config for Runtime {
+	type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
+	type EventHandler = ImOnline;
+}
+
+impl pallet_im_online::Config for Runtime {
+	type AuthorityId = ImOnlineId;
+	type MaxKeys = MaxAuthorities;
+	type MaxPeerInHeartbeats = ConstU32<0>; // Not used any more
+	type RuntimeEvent = RuntimeEvent;
+	type ValidatorSet = Historical;
+	type NextSessionRotation = SessionRotation;
+	type ReportUnresponsiveness = Offences;
+	type UnsignedPriority = ImOnlineUnsignedPriority;
+	type WeightInfo = pallet_im_online::weights::SubstrateWeight<Runtime>;
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -229,13 +314,6 @@ impl pallet_sudo::Config for Runtime {
 	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
-parameter_types! {
-	// This currently _must_ be set to DEFAULT_STORAGE_PERIOD
-	pub const TransactionStorageStoragePeriod: BlockNumber =
-		sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD;
-	pub const TransactionStorageAuthorizationPeriod: BlockNumber = 7 * DAYS;
-}
-
 impl pallet_transaction_storage::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeCall = RuntimeCall;
@@ -248,12 +326,28 @@ impl pallet_transaction_storage::Config for Runtime {
 	type Authorizer = EnsureRoot<Self::AccountId>;
 }
 
+impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
+where
+	RuntimeCall: From<C>,
+{
+	type Extrinsic = UncheckedExtrinsic;
+	type OverarchingCall = RuntimeCall;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub struct Runtime {
 		System: frame_system,
-		Timestamp: pallet_timestamp,
 		Aura: pallet_aura,
+		Timestamp: pallet_timestamp,
+		// Authorship must be before session in order to note author in the correct session for
+		// im-online.
+		Authorship: pallet_authorship,
+		Offences: pallet_offences,
+		Historical: pallet_session::historical,
+		ValidatorSet: pallet_validator_set,
+		Session: pallet_session,
+		ImOnline: pallet_im_online,
 		Grandpa: pallet_grandpa,
 		Sudo: pallet_sudo,
 		TransactionStorage: pallet_transaction_storage,
