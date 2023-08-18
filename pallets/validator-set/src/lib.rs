@@ -25,7 +25,6 @@ use frame_support::{
 	DefaultNoBound,
 };
 use frame_system::pallet_prelude::*;
-use log;
 pub use pallet::*;
 use sp_runtime::{
 	traits::{Convert, Zero},
@@ -40,7 +39,7 @@ use sp_staking::{
 use sp_std::prelude::*;
 pub use weights::*;
 
-pub const LOG_TARGET: &'static str = "runtime::validator-set";
+pub const LOG_TARGET: &str = "runtime::validator-set";
 
 /// Trait that defines an action to be executed when a validator is disabled.
 /// It is agnostic about what is done in that action, `on_disabled` method just
