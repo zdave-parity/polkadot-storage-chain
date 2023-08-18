@@ -1,10 +1,10 @@
 use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 use polkadot_bulletin_chain_runtime::{
-	opaque::SessionKeys, AccountId, RuntimeGenesisConfig, SessionConfig, Signature, SudoConfig,
-	SystemConfig, ValidatorSetConfig, WASM_BINARY,
+	opaque::SessionKeys, AccountId, BabeConfig, RuntimeGenesisConfig, SessionConfig, Signature,
+	SudoConfig, SystemConfig, ValidatorSetConfig, BABE_GENESIS_EPOCH_CONFIG, WASM_BINARY,
 };
 use sc_service::ChainType;
-use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{sr25519, Pair, Public};
 use sp_runtime::traits::{IdentifyAccount, Verify};
@@ -33,17 +33,17 @@ where
 }
 
 /// Generate authority keys from a seed.
-pub fn authority_keys_from_seed(s: &str) -> (AccountId, AuraId, GrandpaId, ImOnlineId) {
+pub fn authority_keys_from_seed(s: &str) -> (AccountId, BabeId, GrandpaId, ImOnlineId) {
 	(
 		get_account_id_from_seed::<sr25519::Public>(s),
-		get_from_seed::<AuraId>(s),
+		get_from_seed::<BabeId>(s),
 		get_from_seed::<GrandpaId>(s),
 		get_from_seed::<ImOnlineId>(s),
 	)
 }
 
-fn session_keys(aura: AuraId, grandpa: GrandpaId, im_online: ImOnlineId) -> SessionKeys {
-	SessionKeys { aura, grandpa, im_online }
+fn session_keys(babe: BabeId, grandpa: GrandpaId, im_online: ImOnlineId) -> SessionKeys {
+	SessionKeys { babe, grandpa, im_online }
 }
 
 pub fn development_config() -> Result<ChainSpec, String> {
@@ -115,7 +115,7 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 /// Configure initial storage state for FRAME modules.
 fn testnet_genesis(
 	wasm_binary: &[u8],
-	initial_authorities: Vec<(AccountId, AuraId, GrandpaId, ImOnlineId)>,
+	initial_authorities: Vec<(AccountId, BabeId, GrandpaId, ImOnlineId)>,
 	root_key: AccountId,
 	_enable_println: bool,
 ) -> RuntimeGenesisConfig {
@@ -136,7 +136,7 @@ fn testnet_genesis(
 				})
 				.collect(),
 		},
-		aura: Default::default(),
+		babe: BabeConfig { epoch_config: Some(BABE_GENESIS_EPOCH_CONFIG), ..Default::default() },
 		grandpa: Default::default(),
 		im_online: Default::default(),
 		sudo: SudoConfig {
