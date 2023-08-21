@@ -256,8 +256,9 @@ pub mod pallet {
 			Self::use_authorization(origin, content_hash, data.len() as u32)?;
 
 			// Chunk data and compute storage root
-			let chunk_count = num_chunks(data.len() as u32);
-			let chunks = data.chunks(CHUNK_SIZE).map(|c| c.to_vec()).collect();
+			let chunks: Vec<_> = data.chunks(CHUNK_SIZE).map(|c| c.to_vec()).collect();
+			let chunk_count = chunks.len();
+			debug_assert_eq!(chunk_count, num_chunks(data.len() as u32) as usize);
 			let root = sp_io::trie::blake2_256_ordered_root(chunks, sp_runtime::StateVersion::V1);
 
 			let extrinsic_index =
@@ -266,7 +267,7 @@ pub mod pallet {
 
 			let mut index = 0;
 			<BlockTransactions<T>>::mutate(|transactions| {
-				let total_chunks = transactions.last().map_or(0, |t| t.block_chunks) + chunk_count;
+				let total_chunks = transactions.last().map_or(0, |t| t.block_chunks) + (chunk_count as u32);
 				index = transactions.len() as u32;
 				transactions
 					.try_push(TransactionInfo {
