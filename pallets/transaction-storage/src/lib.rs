@@ -135,16 +135,21 @@ pub mod pallet {
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 		/// Maximum number of indexed transactions in the block.
+		#[pallet::constant]
 		type MaxBlockTransactions: Get<u32>;
 		/// Maximum data set in a single transaction in bytes.
+		#[pallet::constant]
 		type MaxTransactionSize: Get<u32>;
 		/// Storage period for data in blocks. Should match [`DEFAULT_STORAGE_PERIOD`] for block
 		/// authoring.
+		#[pallet::constant]
 		type StoragePeriod: Get<BlockNumberFor<Self>>;
 		/// Maximum number of authorization expiries per block. Authorizations will be extended to
 		/// avoid exceeding this limit.
+		#[pallet::constant]
 		type MaxBlockAuthorizationExpiries: Get<u32>;
 		/// Authorizations expire after this many blocks.
+		#[pallet::constant]
 		type AuthorizationPeriod: Get<BlockNumberFor<Self>>;
 		/// The origin that can authorize data storage.
 		type Authorizer: EnsureOrigin<Self::RuntimeOrigin>;

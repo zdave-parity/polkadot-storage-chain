@@ -95,12 +95,14 @@ pub mod pallet {
 
 		/// Minimum number of validators to leave in the validator set during
 		/// auto removal.
+		#[pallet::constant]
 		type MinAuthorities: Get<u32>;
 
 		/// Action to be executed when a validator is disabled
 		type OnDisabled: OnDisabled<Self>;
 
 		/// Check `MinAuthorities` before removing validators when disabled
+		#[pallet::constant]
 		type MinAuthoritiesOnDisabled: Get<bool>;
 
 		/// Information on runtime weights.
