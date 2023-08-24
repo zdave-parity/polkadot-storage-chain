@@ -223,3 +223,90 @@ fn authorization_expires() {
 		);
 	});
 }
+
+#[test]
+fn expired_authorization_clears() {
+	new_test_ext().execute_with(|| {
+		run_to_block(1, || None);
+		let who = 1;
+		assert_ok!(TransactionStorage::<Test>::authorize_account(
+			RawOrigin::Root.into(),
+			who,
+			2,
+			2000
+		));
+		assert_eq!(
+			TransactionStorage::<Test>::account_authorization_extent(who),
+			AuthorizationExtent { transactions: 2, bytes: 2000 },
+		);
+
+		// User uses some of the authorization, and the remaining amount gets updated appropriately
+		run_to_block(2, || None);
+		let store_call = Call::<Test>::store { data: vec![0; 1000] };
+		assert_ok!(TransactionStorage::<Test>::pre_dispatch_signed(&who, &store_call));
+		assert_eq!(
+			TransactionStorage::<Test>::account_authorization_extent(who),
+			AuthorizationExtent { transactions: 1, bytes: 1000 },
+		);
+
+		// Can't remove too early
+		run_to_block(10, || None);
+		let remove_call = Call::<Test>::remove_expired_account_authorization { who };
+		assert_noop!(
+			TransactionStorage::<Test>::pre_dispatch(&remove_call),
+			AUTHORIZATION_NOT_EXPIRED,
+		);
+		assert_noop!(
+			Into::<RuntimeCall>::into(remove_call.clone()).dispatch(RawOrigin::None.into()),
+			Error::<Test>::AuthorizationNotExpired,
+		);
+
+		// User has sufficient storage authorization, but it has expired
+		run_to_block(11, || None);
+		assert!(Authorizations::<Test>::contains_key(AuthorizationScope::Account(who)));
+		// User cannot use authorization
+		assert_noop!(
+			TransactionStorage::<Test>::pre_dispatch_signed(&who, &store_call),
+			InvalidTransaction::Payment,
+		);
+		// Anyone can remove it
+		assert_ok!(TransactionStorage::<Test>::pre_dispatch(&remove_call));
+		assert_ok!(Into::<RuntimeCall>::into(remove_call).dispatch(RawOrigin::None.into()));
+		System::assert_has_event(RuntimeEvent::TransactionStorage(
+			crate::Event::ExpiredAccountAuthorizationRemoved { who },
+		));
+		// No longer in storage
+		assert!(!Authorizations::<Test>::contains_key(AuthorizationScope::Account(who)));
+	});
+}
+
+#[test]
+fn consumed_authorization_clears() {
+	new_test_ext().execute_with(|| {
+		run_to_block(1, || None);
+		let who = 1;
+		assert_ok!(TransactionStorage::<Test>::authorize_account(
+			RawOrigin::Root.into(),
+			who,
+			2,
+			2000
+		));
+		assert_eq!(
+			TransactionStorage::<Test>::account_authorization_extent(who),
+			AuthorizationExtent { transactions: 2, bytes: 2000 },
+		);
+
+		// User uses some of the authorization, and the remaining amount gets updated appropriately
+		let call = Call::<Test>::store { data: vec![0; 1000] };
+		assert_ok!(TransactionStorage::<Test>::pre_dispatch_signed(&who, &call));
+		// Debited half the authorization
+		assert_eq!(
+			TransactionStorage::<Test>::account_authorization_extent(who),
+			AuthorizationExtent { transactions: 1, bytes: 1000 },
+		);
+		// Consume the remaining amount
+		assert_ok!(TransactionStorage::<Test>::pre_dispatch_signed(&who, &call));
+		// Key should be cleared from Authorizations
+		assert!(!Authorizations::<Test>::contains_key(AuthorizationScope::Account(who)));
+	});
+}
