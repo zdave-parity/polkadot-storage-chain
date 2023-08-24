@@ -14,10 +14,13 @@ use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{
-		AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, OpaqueKeys,
-		Verify,
+		AccountIdLookup, BlakeTwo256, Block as BlockT, DispatchInfoOf, IdentifyAccount, NumberFor,
+		OpaqueKeys, SignedExtension, Verify,
 	},
-	transaction_validity::{TransactionPriority, TransactionSource, TransactionValidity},
+	transaction_validity::{
+		InvalidTransaction, TransactionLongevity, TransactionPriority, TransactionSource,
+		TransactionValidity, TransactionValidityError, ValidTransaction,
+	},
 	ApplyExtrinsicResult, MultiSignature,
 };
 use sp_std::prelude::*;
@@ -177,6 +180,16 @@ parameter_types! {
 	pub const TransactionStorageStoragePeriod: BlockNumber =
 		sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD;
 	pub const TransactionStorageAuthorizationPeriod: BlockNumber = 7 * DAYS;
+	pub const TransactionStorageStoreRenewPriority: TransactionPriority =
+		TransactionStorageRemoveExpiredAuthorizationPriority::get() - 1;
+	pub const TransactionStorageStoreRenewLongevity: TransactionLongevity =
+		DAYS as TransactionLongevity;
+	pub const TransactionStorageRemoveExpiredAuthorizationPriority: TransactionPriority =
+		SudoPriority::get() - 1;
+	pub const TransactionStorageRemoveExpiredAuthorizationLongevity: TransactionLongevity =
+		DAYS as TransactionLongevity;
+
+	pub const SudoPriority: TransactionPriority = ImOnlineUnsignedPriority::get() - 1;
 }
 
 // Configure FRAME pallets to include in runtime.
@@ -333,9 +346,13 @@ impl pallet_transaction_storage::Config for Runtime {
 	type MaxBlockTransactions = ConstU32<512>;
 	type MaxTransactionSize = ConstU32<{ 8 * 1024 * 1024 }>;
 	type StoragePeriod = TransactionStorageStoragePeriod;
-	type MaxBlockAuthorizationExpiries = ConstU32<512>;
 	type AuthorizationPeriod = TransactionStorageAuthorizationPeriod;
 	type Authorizer = EnsureRoot<Self::AccountId>;
+	type StoreRenewPriority = TransactionStorageStoreRenewPriority;
+	type StoreRenewLongevity = TransactionStorageStoreRenewLongevity;
+	type RemoveExpiredAuthorizationPriority = TransactionStorageRemoveExpiredAuthorizationPriority;
+	type RemoveExpiredAuthorizationLongevity =
+		TransactionStorageRemoveExpiredAuthorizationLongevity;
 }
 
 impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
@@ -372,6 +389,75 @@ pub type Address = sp_runtime::MultiAddress<AccountId, ()>;
 pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
+
+fn validate_sudo(who: &AccountId) -> TransactionValidity {
+	// Only allow sudo transactions signed by the sudo account. The sudo pallet obviously checks
+	// this, but not until transaction execution.
+	if Sudo::key().map_or(false, |k| who == &k) {
+		Ok(ValidTransaction { priority: SudoPriority::get(), ..Default::default() })
+	} else {
+		Err(InvalidTransaction::BadSigner.into())
+	}
+}
+
+/// `ValidateUnsigned` equivalent for signed transactions.
+///
+/// This chain has no transaction fees, so we require checks equivalent to those performed by
+/// `ValidateUnsigned` for all signed transactions. Substrate has no built-in mechanism for this;
+/// it is handled by this `SignedExtension`.
+#[derive(
+	Clone,
+	PartialEq,
+	Eq,
+	sp_runtime::RuntimeDebug,
+	codec::Encode,
+	codec::Decode,
+	scale_info::TypeInfo,
+)]
+pub struct ValidateSigned;
+
+impl SignedExtension for ValidateSigned {
+	type AccountId = AccountId;
+	type Call = RuntimeCall;
+	type AdditionalSigned = ();
+	type Pre = ();
+
+	const IDENTIFIER: &'static str = "ValidateSigned";
+
+	fn additional_signed(&self) -> Result<Self::AdditionalSigned, TransactionValidityError> {
+		Ok(())
+	}
+
+	fn pre_dispatch(
+		self,
+		who: &Self::AccountId,
+		call: &Self::Call,
+		_info: &DispatchInfoOf<Self::Call>,
+		_len: usize,
+	) -> Result<Self::Pre, TransactionValidityError> {
+		match call {
+			Self::Call::TransactionStorage(call) =>
+				TransactionStorage::pre_dispatch_signed(who, call),
+			Self::Call::Sudo(_) => validate_sudo(who).map(|_| ()),
+			_ => Err(InvalidTransaction::Call.into()),
+		}
+	}
+
+	fn validate(
+		&self,
+		who: &Self::AccountId,
+		call: &Self::Call,
+		_info: &DispatchInfoOf<Self::Call>,
+		_len: usize,
+	) -> TransactionValidity {
+		match call {
+			Self::Call::TransactionStorage(call) => TransactionStorage::validate_signed(who, call),
+			Self::Call::Sudo(_) => validate_sudo(who),
+			_ => Err(InvalidTransaction::Call.into()),
+		}
+	}
+}
+
 /// The SignedExtension to the basic transaction logic.
 pub type SignedExtra = (
 	frame_system::CheckNonZeroSender<Runtime>,
@@ -381,6 +467,7 @@ pub type SignedExtra = (
 	frame_system::CheckEra<Runtime>,
 	frame_system::CheckNonce<Runtime>,
 	frame_system::CheckWeight<Runtime>,
+	ValidateSigned,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.

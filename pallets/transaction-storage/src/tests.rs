@@ -22,6 +22,7 @@ use crate::mock::*;
 use frame_support::{assert_noop, assert_ok};
 use frame_system::RawOrigin;
 use sp_core::blake2_256;
+use sp_runtime::traits::{Dispatchable, ValidateUnsigned};
 use sp_transaction_storage_proof::registration::build_proof;
 
 const MAX_DATA_SIZE: u32 = DEFAULT_MAX_TRANSACTION_SIZE;
@@ -30,21 +31,8 @@ const MAX_DATA_SIZE: u32 = DEFAULT_MAX_TRANSACTION_SIZE;
 fn discards_data() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
-		let caller = 1;
-		assert_ok!(TransactionStorage::<Test>::authorize_account(
-			RawOrigin::Root.into(),
-			caller,
-			2,
-			4000
-		));
-		assert_ok!(TransactionStorage::<Test>::store(
-			RawOrigin::Signed(caller).into(),
-			vec![0u8; 2000]
-		));
-		assert_ok!(TransactionStorage::<Test>::store(
-			RawOrigin::Signed(caller).into(),
-			vec![0u8; 2000]
-		));
+		assert_ok!(TransactionStorage::<Test>::store(RawOrigin::None.into(), vec![0u8; 2000]));
+		assert_ok!(TransactionStorage::<Test>::store(RawOrigin::None.into(), vec![0u8; 2000]));
 		let proof_provider = || {
 			let block_num = <frame_system::Pallet<Test>>::block_number();
 			if block_num == 11 {
@@ -59,8 +47,8 @@ fn discards_data() {
 		};
 		run_to_block(11, proof_provider);
 		assert!(Transactions::<Test>::get(1).is_some());
-		let transctions = Transactions::<Test>::get(1).unwrap();
-		assert_eq!(transctions.len(), 2);
+		let transactions = Transactions::<Test>::get(1).unwrap();
+		assert_eq!(transactions.len(), 2);
 		assert_eq!(ChunkCount::<Test>::get(1), 16);
 		run_to_block(12, proof_provider);
 		assert!(Transactions::<Test>::get(1).is_none());
@@ -77,27 +65,26 @@ fn uses_account_authorization() {
 			RawOrigin::Root.into(),
 			caller,
 			2,
-			2000
+			2001
 		));
 		assert_eq!(
-			TransactionStorage::<Test>::unused_account_authorization_extent(caller),
-			AuthorizationExtent { transactions: 2, bytes: 2000 }
+			TransactionStorage::<Test>::account_authorization_extent(caller),
+			AuthorizationExtent { transactions: 2, bytes: 2001 }
 		);
+		let call = Call::<Test>::store { data: vec![0u8; 2000] };
 		assert_noop!(
-			TransactionStorage::<Test>::store(RawOrigin::Signed(5).into(), vec![0u8; 2000]),
-			Error::<Test>::NotAuthorized,
+			TransactionStorage::<Test>::pre_dispatch_signed(&5, &call),
+			InvalidTransaction::Payment,
 		);
-		assert_ok!(TransactionStorage::<Test>::store(
-			RawOrigin::Signed(caller).into(),
-			vec![0u8; 2000]
-		));
+		assert_ok!(TransactionStorage::<Test>::pre_dispatch_signed(&caller, &call));
 		assert_eq!(
-			TransactionStorage::<Test>::unused_account_authorization_extent(caller),
-			AuthorizationExtent { transactions: 1, bytes: 0 }
+			TransactionStorage::<Test>::account_authorization_extent(caller),
+			AuthorizationExtent { transactions: 1, bytes: 1 }
 		);
+		let call = Call::<Test>::store { data: vec![0u8; 2] };
 		assert_noop!(
-			TransactionStorage::<Test>::store(RawOrigin::Signed(caller).into(), vec![0u8; 1]),
-			Error::<Test>::NotAuthorized,
+			TransactionStorage::<Test>::pre_dispatch_signed(&caller, &call),
+			InvalidTransaction::Payment,
 		);
 	});
 }
@@ -114,40 +101,30 @@ fn uses_preimage_authorization() {
 			2002
 		));
 		assert_eq!(
-			TransactionStorage::<Test>::unused_preimage_authorization_extent(hash),
+			TransactionStorage::<Test>::preimage_authorization_extent(hash),
 			AuthorizationExtent { transactions: 1, bytes: 2002 }
 		);
-		assert_noop!(
-			TransactionStorage::<Test>::store(RawOrigin::None.into(), vec![1; 2000]),
-			Error::<Test>::NotAuthorized,
-		);
-		assert_ok!(TransactionStorage::<Test>::store(RawOrigin::None.into(), data.clone()));
+		let call = Call::<Test>::store { data: vec![1; 2000] };
+		assert_noop!(TransactionStorage::<Test>::pre_dispatch(&call), InvalidTransaction::Payment);
+		let call = Call::<Test>::store { data };
+		assert_ok!(TransactionStorage::<Test>::pre_dispatch(&call));
 		assert_eq!(
-			TransactionStorage::<Test>::unused_preimage_authorization_extent(hash),
-			AuthorizationExtent { transactions: 0, bytes: 2 }
+			TransactionStorage::<Test>::preimage_authorization_extent(hash),
+			AuthorizationExtent { transactions: 0, bytes: 0 }
 		);
+		assert_ok!(Into::<RuntimeCall>::into(call).dispatch(RawOrigin::None.into()));
 		run_to_block(3, || None);
-		assert_noop!(
-			TransactionStorage::<Test>::renew(
-				RawOrigin::None.into(),
-				1, // block
-				0, // transaction
-			),
-			Error::<Test>::NotAuthorized,
-		);
+		let call = Call::<Test>::renew { block: 1, index: 0 };
+		assert_noop!(TransactionStorage::<Test>::pre_dispatch(&call), InvalidTransaction::Payment);
 		assert_ok!(TransactionStorage::<Test>::authorize_preimage(
 			RawOrigin::Root.into(),
 			hash,
 			2000
 		));
-		assert_ok!(TransactionStorage::<Test>::renew(
-			RawOrigin::None.into(),
-			1, // block
-			0, // transaction
-		));
+		assert_ok!(TransactionStorage::<Test>::pre_dispatch(&call));
 		assert_eq!(
-			TransactionStorage::<Test>::unused_preimage_authorization_extent(hash),
-			AuthorizationExtent { transactions: 0, bytes: 2 }
+			TransactionStorage::<Test>::preimage_authorization_extent(hash),
+			AuthorizationExtent { transactions: 0, bytes: 0 }
 		);
 	});
 }
@@ -156,15 +133,8 @@ fn uses_preimage_authorization() {
 fn checks_proof() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
-		let caller = 1;
-		assert_ok!(TransactionStorage::<Test>::authorize_account(
-			RawOrigin::Root.into(),
-			caller,
-			1,
-			MAX_DATA_SIZE.into()
-		));
 		assert_ok!(TransactionStorage::<Test>::store(
-			RawOrigin::Signed(caller).into(),
+			RawOrigin::None.into(),
 			vec![0u8; MAX_DATA_SIZE as usize]
 		));
 		run_to_block(10, || None);
@@ -172,7 +142,7 @@ fn checks_proof() {
 		let proof =
 			build_proof(parent_hash.as_ref(), vec![vec![0u8; MAX_DATA_SIZE as usize]]).unwrap();
 		assert_noop!(
-			TransactionStorage::<Test>::check_proof(RuntimeOrigin::none(), proof,),
+			TransactionStorage::<Test>::check_proof(RuntimeOrigin::none(), proof),
 			Error::<Test>::UnexpectedProof,
 		);
 		run_to_block(11, || None);
@@ -180,7 +150,7 @@ fn checks_proof() {
 
 		let invalid_proof = build_proof(parent_hash.as_ref(), vec![vec![0u8; 1000]]).unwrap();
 		assert_noop!(
-			TransactionStorage::<Test>::check_proof(RuntimeOrigin::none(), invalid_proof,),
+			TransactionStorage::<Test>::check_proof(RuntimeOrigin::none(), invalid_proof),
 			Error::<Test>::InvalidProof,
 		);
 
@@ -194,28 +164,14 @@ fn checks_proof() {
 fn renews_data() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
-		let caller = 1;
-		assert_ok!(TransactionStorage::<Test>::authorize_account(
-			RawOrigin::Root.into(),
-			caller,
-			4,
-			4009
-		));
-		assert_ok!(TransactionStorage::<Test>::store(
-			RawOrigin::Signed(caller).into(),
-			vec![0u8; 2000]
-		));
+		assert_ok!(TransactionStorage::<Test>::store(RawOrigin::None.into(), vec![0u8; 2000]));
 		let info = BlockTransactions::<Test>::get().last().unwrap().clone();
 		run_to_block(6, || None);
 		assert_ok!(TransactionStorage::<Test>::renew(
-			RawOrigin::Signed(caller).into(),
+			RawOrigin::None.into(),
 			1, // block
 			0, // transaction
 		));
-		assert_eq!(
-			TransactionStorage::<Test>::unused_account_authorization_extent(caller),
-			AuthorizationExtent { transactions: 2, bytes: 9 },
-		);
 		let proof_provider = || {
 			let block_num = <frame_system::Pallet<Test>>::block_number();
 			if block_num == 11 || block_num == 16 {
@@ -245,18 +201,25 @@ fn authorization_expires() {
 			2000
 		));
 		assert_eq!(
-			TransactionStorage::<Test>::unused_account_authorization_extent(who),
+			TransactionStorage::<Test>::account_authorization_extent(who),
 			AuthorizationExtent { transactions: 1, bytes: 2000 },
 		);
+		let call = Call::<Test>::store { data: vec![0; 2000] };
+		assert_ok!(TransactionStorage::<Test>::validate_signed(&who, &call));
 		run_to_block(10, || None);
 		assert_eq!(
-			TransactionStorage::<Test>::unused_account_authorization_extent(who),
+			TransactionStorage::<Test>::account_authorization_extent(who),
 			AuthorizationExtent { transactions: 1, bytes: 2000 },
 		);
+		assert_ok!(TransactionStorage::<Test>::validate_signed(&who, &call));
 		run_to_block(11, || None);
 		assert_eq!(
-			TransactionStorage::<Test>::unused_account_authorization_extent(who),
+			TransactionStorage::<Test>::account_authorization_extent(who),
 			AuthorizationExtent { transactions: 0, bytes: 0 },
+		);
+		assert_noop!(
+			TransactionStorage::<Test>::validate_signed(&who, &call),
+			InvalidTransaction::Payment
 		);
 	});
 }

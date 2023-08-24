@@ -127,10 +127,8 @@ mod benchmarks {
 
 	#[benchmark]
 	fn store(l: Linear<{ 1 }, { T::MaxTransactionSize::get() }>) -> Result<(), BenchmarkError> {
-		let caller: T::AccountId = whitelisted_caller();
-
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), vec![0u8; l as usize]);
+		_(RawOrigin::None, vec![0u8; l as usize]);
 
 		assert!(!BlockTransactions::<T>::get().is_empty());
 		assert_last_event::<T>(Event::Stored { index: 0 }.into());
@@ -139,15 +137,14 @@ mod benchmarks {
 
 	#[benchmark]
 	fn renew() -> Result<(), BenchmarkError> {
-		let caller: T::AccountId = whitelisted_caller();
 		TransactionStorage::<T>::store(
-			RawOrigin::Signed(caller.clone()).into(),
+			RawOrigin::None.into(),
 			vec![0u8; T::MaxTransactionSize::get() as usize],
 		)?;
 		run_to_block::<T>(1u32.into());
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), BlockNumberFor::<T>::zero(), 0);
+		_(RawOrigin::None, BlockNumberFor::<T>::zero(), 0);
 
 		assert_last_event::<T>(Event::Renewed { index: 0 }.into());
 		Ok(())
@@ -156,10 +153,9 @@ mod benchmarks {
 	#[benchmark]
 	fn check_proof() -> Result<(), BenchmarkError> {
 		run_to_block::<T>(1u32.into());
-		let caller: T::AccountId = whitelisted_caller();
 		for _ in 0..T::MaxBlockTransactions::get() {
 			TransactionStorage::<T>::store(
-				RawOrigin::Signed(caller.clone()).into(),
+				RawOrigin::None.into(),
 				vec![0u8; T::MaxTransactionSize::get() as usize],
 			)?;
 		}
@@ -200,6 +196,42 @@ mod benchmarks {
 		_(origin as T::RuntimeOrigin, hash, max_size);
 
 		assert_last_event::<T>(Event::PreimageAuthorized { hash, max_size }.into());
+		Ok(())
+	}
+
+	#[benchmark]
+	fn remove_expired_account_authorization() -> Result<(), BenchmarkError> {
+		let origin = T::Authorizer::try_successful_origin()
+			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
+		let who = whitelisted_caller();
+		TransactionStorage::<T>::authorize_account(origin, who.clone(), 1, 1);
+
+		let period = T::AuthorizationPeriod::get();
+		let now = frame_system::Pallet::<T>::block_number();
+		run_to_block::<T>(now + period);
+
+		#[extrinsic_call]
+		_(RawOrigin::None, who.clone());
+
+		assert_last_event::<T>(Event::AccountAuthorizationRemoved { who });
+		Ok(())
+	}
+
+	#[benchmark]
+	fn remove_expired_preimage_authorization() -> Result<(), BenchmarkError> {
+		let origin = T::Authorizer::try_successful_origin()
+			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
+		let hash = [0; 32];
+		TransactionStorage::<T>::authorize_preimage(origin, hash, 1);
+
+		let period = T::AuthorizationPeriod::get();
+		let now = frame_system::Pallet::<T>::block_number();
+		run_to_block::<T>(now + period);
+
+		#[extrinsic_call]
+		_(RawOrigin::None, hash);
+
+		assert_last_event::<T>(Event::PreimageAuthorizationRemoved { hash });
 		Ok(())
 	}
 
