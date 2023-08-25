@@ -4,7 +4,6 @@ version = '1.0.0'
 authors = ['Gautam Dhameja <quasijatt@outlook.com>', 'Parity Technologies <admin@parity.io>']
 edition = '2021'
 license = 'Apache-2.0'
-repository = 'https://github.com/gautamdhameja/substrate-validator-set'
 
 [dev-dependencies.serde]
 features = ['derive']
