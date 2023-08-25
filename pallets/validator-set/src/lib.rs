@@ -102,7 +102,7 @@ pub mod pallet {
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
 			assert!(
-				self.initial_validators.len() as u32 >= T::MinAuthorities::get(),
+				self.initial_validators.len() >= T::MinAuthorities::get() as usize,
 				"Initial set of validators must be at least T::MinAuthorities"
 			);
 			assert!(<Validators<T>>::get().is_empty(), "Validators are already initialized!");
@@ -151,7 +151,7 @@ pub mod pallet {
 			// Ensuring that the post removal, target validator count doesn't go
 			// below the minimum.
 			ensure!(
-				validators.len().saturating_sub(1) as u32 >= T::MinAuthorities::get(),
+				validators.len().saturating_sub(1) >= T::MinAuthorities::get() as usize,
 				Error::<T>::TooLowValidatorCount
 			);
 
@@ -210,7 +210,7 @@ impl<T: Config> Pallet<T> {
 				current_validators_len.checked_sub(validators_len_to_remove)
 			{
 				ensure!(
-					validators_left_len as u32 >= T::MinAuthorities::get(),
+					validators_left_len >= T::MinAuthorities::get() as usize,
 					Error::<T>::TooLowValidatorCount
 				);
 			}
