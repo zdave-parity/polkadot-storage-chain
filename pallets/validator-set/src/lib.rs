@@ -18,15 +18,10 @@ mod mock;
 mod tests;
 pub mod weights;
 
-use frame_support::{
-	ensure,
-	pallet_prelude::*,
-	traits::{EstimateNextSessionRotation, Get},
-	DefaultNoBound,
-};
+use frame_support::{ensure, pallet_prelude::*, traits::Get, DefaultNoBound};
 use frame_system::pallet_prelude::*;
 pub use pallet::*;
-use sp_runtime::{traits::Zero, Perbill, RuntimeDebug};
+use sp_runtime::{Perbill, RuntimeDebug};
 use sp_staking::{
 	offence::{
 		DisableStrategy, Offence, OffenceDetails, OffenceError, OnOffenceHandler, ReportOffence,
@@ -347,24 +342,6 @@ impl<T: Config> pallet_session::SessionManager<T::ValidatorId> for Pallet<T> {
 	fn end_session(_end_index: u32) {}
 
 	fn start_session(_start_index: u32) {}
-}
-
-impl<T: Config> EstimateNextSessionRotation<BlockNumberFor<T>> for Pallet<T> {
-	fn average_session_length() -> BlockNumberFor<T> {
-		Zero::zero()
-	}
-
-	fn estimate_current_session_progress(
-		_now: BlockNumberFor<T>,
-	) -> (Option<sp_runtime::Permill>, frame_support::dispatch::Weight) {
-		(None, Zero::zero())
-	}
-
-	fn estimate_next_session_rotation(
-		_now: BlockNumberFor<T>,
-	) -> (Option<BlockNumberFor<T>>, frame_support::dispatch::Weight) {
-		(None, Zero::zero())
-	}
 }
 
 // Offence reporting and unresponsiveness management.
