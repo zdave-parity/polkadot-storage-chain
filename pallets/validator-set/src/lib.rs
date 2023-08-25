@@ -438,7 +438,8 @@ where
 		slash_session: SessionIndex,
 		disable_strategy: DisableStrategy,
 	) -> Weight {
-		let mut consumed_weight = Weight::zero();
+		let mut weight = Weight::zero();
+		let db_weight = T::DbWeight::get();
 
 		offenders.iter().for_each(|o| {
 			let offender = o.offender.clone();
@@ -448,28 +449,28 @@ where
 					if Self::disable_validator(&offender.0) {
 						// Validator was not yet disabled, it is added to pallet_session
 						// `DisabledValidators`
-						consumed_weight += T::DbWeight::get().reads_writes(1, 1);
+						weight.saturating_accrue(db_weight.reads_writes(1, 1));
 						// Validator is added to local `DisabledValidators`
 						Self::mark_disabled_for_removal(offender.0.clone());
-						consumed_weight += T::DbWeight::get().reads_writes(1, 1);
+						weight.saturating_accrue(db_weight.reads_writes(1, 1));
 
 						// Execute `on_disabled` action
-						consumed_weight += T::OnDisabled::on_disabled(
+						weight.saturating_accrue(T::OnDisabled::on_disabled(
 							&offender.0,
 							slash_fraction,
 							slash_session,
 							disable_strategy,
-						);
+						));
 					} else {
 						// Validator was already disabled, it is not added to `DisabledValidators`
 						// (no writes)
-						consumed_weight += T::DbWeight::get().reads_writes(1, 0);
+						weight.saturating_accrue(db_weight.reads(1));
 					}
 				},
 				DisableStrategy::Never => {},
 			}
 		});
 
-		consumed_weight
+		weight
 	}
 }
