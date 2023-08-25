@@ -31,35 +31,6 @@ pub use weights::*;
 
 pub const LOG_TARGET: &str = "runtime::validator-set";
 
-/// Trait that defines an action to be executed when a validator is disabled.
-/// It is agnostic about what is done in that action, `on_disabled` method just
-/// expects a `Weight` in return.
-pub trait OnDisabled<T>
-where
-	T: frame_system::Config + pallet_session::Config,
-{
-	fn on_disabled(
-		offender: &T::ValidatorId,
-		slash_fraction: &[Perbill],
-		slash_session: SessionIndex,
-		disable_strategy: DisableStrategy,
-	) -> Weight;
-}
-
-impl<T> OnDisabled<T> for ()
-where
-	T: frame_system::Config + pallet_session::Config,
-{
-	fn on_disabled(
-		_offenders: &T::ValidatorId,
-		_slash_fraction: &[Perbill],
-		_slash_session: SessionIndex,
-		_disable_strategy: DisableStrategy,
-	) -> Weight {
-		Weight::zero()
-	}
-}
-
 #[frame_support::pallet()]
 pub mod pallet {
 	use super::*;
@@ -78,9 +49,6 @@ pub mod pallet {
 		/// auto removal.
 		#[pallet::constant]
 		type MinAuthorities: Get<u32>;
-
-		/// Action to be executed when a validator is disabled
-		type OnDisabled: OnDisabled<Self>;
 
 		/// Check `MinAuthorities` before removing validators when disabled
 		#[pallet::constant]
@@ -313,8 +281,8 @@ where
 			T::AccountId,
 			pallet_session::historical::IdentificationTuple<T>,
 		>],
-		slash_fraction: &[Perbill],
-		slash_session: SessionIndex,
+		_slash_fraction: &[Perbill],
+		_slash_session: SessionIndex,
 		disable_strategy: DisableStrategy,
 	) -> Weight {
 		let mut weight = Weight::zero();
@@ -332,14 +300,6 @@ where
 						// Validator is added to local `DisabledValidators`
 						Self::mark_disabled_for_removal(offender.0.clone());
 						weight.saturating_accrue(db_weight.reads_writes(1, 1));
-
-						// Execute `on_disabled` action
-						weight.saturating_accrue(T::OnDisabled::on_disabled(
-							&offender.0,
-							slash_fraction,
-							slash_session,
-							disable_strategy,
-						));
 					} else {
 						// Validator was already disabled, it is not added to `DisabledValidators`
 						// (no writes)

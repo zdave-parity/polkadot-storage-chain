@@ -248,7 +248,6 @@ impl pallet_validator_set::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type AddRemoveOrigin = EnsureRoot<AccountId>;
 	type MinAuthorities = MinAuthorities;
-	type OnDisabled = ();
 	type MinAuthoritiesOnDisabled = ConstBool<true>;
 	type WeightInfo = pallet_validator_set::weights::SubstrateWeight<Runtime>;
 }
