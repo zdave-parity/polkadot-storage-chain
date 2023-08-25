@@ -26,10 +26,7 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::*;
 pub use pallet::*;
-use sp_runtime::{
-	traits::{Convert, Zero},
-	Perbill, RuntimeDebug,
-};
+use sp_runtime::{traits::Zero, Perbill, RuntimeDebug};
 use sp_staking::{
 	offence::{
 		DisableStrategy, Offence, OffenceDetails, OffenceError, OnOffenceHandler, ReportOffence,
@@ -367,16 +364,6 @@ impl<T: Config> EstimateNextSessionRotation<BlockNumberFor<T>> for Pallet<T> {
 		_now: BlockNumberFor<T>,
 	) -> (Option<BlockNumberFor<T>>, frame_support::dispatch::Weight) {
 		(None, Zero::zero())
-	}
-}
-
-// Implementation of Convert trait to satisfy trait bounds in session pallet.
-// Here it just returns the same ValidatorId.
-pub struct ValidatorOf<T>(sp_std::marker::PhantomData<T>);
-
-impl<T: Config> Convert<T::ValidatorId, Option<T::ValidatorId>> for ValidatorOf<T> {
-	fn convert(account: T::ValidatorId) -> Option<T::ValidatorId> {
-		Some(account)
 	}
 }
 
