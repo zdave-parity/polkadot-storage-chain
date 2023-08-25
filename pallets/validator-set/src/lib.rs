@@ -21,7 +21,7 @@ pub mod weights;
 use frame_support::{
 	ensure,
 	pallet_prelude::*,
-	traits::{EstimateNextSessionRotation, Get, ValidatorSet, ValidatorSetWithIdentification},
+	traits::{EstimateNextSessionRotation, Get},
 	DefaultNoBound,
 };
 use frame_system::pallet_prelude::*;
@@ -378,24 +378,6 @@ impl<T: Config> Convert<T::ValidatorId, Option<T::ValidatorId>> for ValidatorOf<
 	fn convert(account: T::ValidatorId) -> Option<T::ValidatorId> {
 		Some(account)
 	}
-}
-
-impl<T: Config> ValidatorSet<T::ValidatorId> for Pallet<T> {
-	type ValidatorId = T::ValidatorId;
-	type ValidatorIdOf = ValidatorOf<T>;
-
-	fn session_index() -> SessionIndex {
-		pallet_session::Pallet::<T>::current_index()
-	}
-
-	fn validators() -> Vec<T::ValidatorId> {
-		pallet_session::Pallet::<T>::validators()
-	}
-}
-
-impl<T: Config> ValidatorSetWithIdentification<T::ValidatorId> for Pallet<T> {
-	type Identification = T::ValidatorId;
-	type IdentificationOf = ValidatorOf<T>;
 }
 
 // Offence reporting and unresponsiveness management.
