@@ -101,7 +101,13 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			Pallet::<T>::initialize_validators(&self.initial_validators);
+			assert!(
+				self.initial_validators.len() as u32 >= T::MinAuthorities::get(),
+				"Initial set of validators must be at least T::MinAuthorities"
+			);
+			assert!(<Validators<T>>::get().is_empty(), "Validators are already initialized!");
+
+			<Validators<T>>::put(&self.initial_validators);
 		}
 	}
 
@@ -119,7 +125,11 @@ pub mod pallet {
 		pub fn add_validator(origin: OriginFor<T>, validator_id: T::ValidatorId) -> DispatchResult {
 			T::AddRemoveOrigin::ensure_origin(origin)?;
 
-			Self::do_add_validator(validator_id.clone())?;
+			ensure!(!<Validators<T>>::get().contains(&validator_id), Error::<T>::Duplicate);
+			<Validators<T>>::mutate(|v| v.push(validator_id.clone()));
+
+			Self::deposit_event(Event::ValidatorAdditionInitiated(validator_id.clone()));
+			log::debug!(target: LOG_TARGET, "Validator addition initiated.");
 
 			Ok(())
 		}
@@ -136,7 +146,21 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::AddRemoveOrigin::ensure_origin(origin)?;
 
-			Self::do_remove_validator(validator_id.clone())?;
+			let mut validators = <Validators<T>>::get();
+
+			// Ensuring that the post removal, target validator count doesn't go
+			// below the minimum.
+			ensure!(
+				validators.len().saturating_sub(1) as u32 >= T::MinAuthorities::get(),
+				Error::<T>::TooLowValidatorCount
+			);
+
+			validators.retain(|v| *v != validator_id);
+
+			<Validators<T>>::put(validators);
+
+			Self::deposit_event(Event::ValidatorRemovalInitiated(validator_id.clone()));
+			log::debug!(target: LOG_TARGET, "Validator removal initiated.");
 
 			Ok(())
 		}
@@ -144,46 +168,6 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
-	fn initialize_validators(validators: &[T::ValidatorId]) {
-		assert!(
-			validators.len() as u32 >= T::MinAuthorities::get(),
-			"Initial set of validators must be at least T::MinAuthorities"
-		);
-		assert!(<Validators<T>>::get().is_empty(), "Validators are already initialized!");
-
-		<Validators<T>>::put(validators);
-	}
-
-	fn do_add_validator(validator_id: T::ValidatorId) -> DispatchResult {
-		ensure!(!<Validators<T>>::get().contains(&validator_id), Error::<T>::Duplicate);
-		<Validators<T>>::mutate(|v| v.push(validator_id.clone()));
-
-		Self::deposit_event(Event::ValidatorAdditionInitiated(validator_id.clone()));
-		log::debug!(target: LOG_TARGET, "Validator addition initiated.");
-
-		Ok(())
-	}
-
-	fn do_remove_validator(validator_id: T::ValidatorId) -> DispatchResult {
-		let mut validators = <Validators<T>>::get();
-
-		// Ensuring that the post removal, target validator count doesn't go
-		// below the minimum.
-		ensure!(
-			validators.len().saturating_sub(1) as u32 >= T::MinAuthorities::get(),
-			Error::<T>::TooLowValidatorCount
-		);
-
-		validators.retain(|v| *v != validator_id);
-
-		<Validators<T>>::put(validators);
-
-		Self::deposit_event(Event::ValidatorRemovalInitiated(validator_id.clone()));
-		log::debug!(target: LOG_TARGET, "Validator removal initiated.");
-
-		Ok(())
-	}
-
 	// Adds disabled validators to a local cache for removal on new session.
 	fn mark_disabled_for_removal(validator_id: T::ValidatorId) {
 		<DisabledValidators<T>>::mutate(|v| v.push(validator_id));
@@ -242,11 +226,6 @@ impl<T: Config> Pallet<T> {
 
 		Ok(())
 	}
-
-	// Disable validator from current `pallet_session` validators set
-	fn disable_validator(validator: &T::ValidatorId) -> bool {
-		<pallet_session::Pallet<T>>::disable(validator)
-	}
 }
 
 // Provides the new set of validators to the session module when session is
@@ -293,7 +272,7 @@ where
 
 			match disable_strategy {
 				DisableStrategy::WhenSlashed | DisableStrategy::Always => {
-					if Self::disable_validator(&offender.0) {
+					if pallet_session::Pallet::<T>::disable(&offender.0) {
 						// Validator was not yet disabled, it is added to pallet_session
 						// `DisabledValidators`
 						weight.saturating_accrue(db_weight.reads_writes(1, 1));
