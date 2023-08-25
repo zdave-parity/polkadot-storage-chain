@@ -95,7 +95,6 @@ pub mod pallet {
 		ValidatorRemoved(T::ValidatorId),
 	}
 
-	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Target (post-removal) validator count is below the minimum.
