@@ -21,11 +21,9 @@ pub mod weights;
 use frame_support::{ensure, pallet_prelude::*, traits::Get, DefaultNoBound};
 use frame_system::pallet_prelude::*;
 pub use pallet::*;
-use sp_runtime::{Perbill, RuntimeDebug};
+use sp_runtime::Perbill;
 use sp_staking::{
-	offence::{
-		DisableStrategy, Offence, OffenceDetails, OffenceError, OnOffenceHandler, ReportOffence,
-	},
+	offence::{DisableStrategy, OffenceDetails, OnOffenceHandler},
 	SessionIndex,
 };
 use sp_std::prelude::*;
@@ -60,15 +58,6 @@ where
 	) -> Weight {
 		Weight::zero()
 	}
-}
-
-/// Reason for a validator to be removed from the active set
-#[derive(RuntimeDebug)]
-pub enum RemovalReason {
-	/// The validator went offline
-	Offline,
-	/// The validator was disabled
-	Disabled,
 }
 
 #[frame_support::pallet()]
@@ -108,10 +97,6 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn validators)]
 	pub type Validators<T: Config> = StorageValue<_, Vec<T::ValidatorId>, ValueQuery>;
-
-	#[pallet::storage]
-	#[pallet::getter(fn offline_validators)]
-	pub type OfflineValidators<T: Config> = StorageValue<_, Vec<T::ValidatorId>, ValueQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn disabled_validators)]
@@ -231,31 +216,10 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	// Adds offline validators to a local cache for removal on new session.
-	fn mark_offline_for_removal(validator_id: T::ValidatorId) {
-		<OfflineValidators<T>>::mutate(|v| v.push(validator_id));
-		log::debug!(target: LOG_TARGET, "Offline validator marked for auto removal.");
-	}
-
 	// Adds disabled validators to a local cache for removal on new session.
 	fn mark_disabled_for_removal(validator_id: T::ValidatorId) {
 		<DisabledValidators<T>>::mutate(|v| v.push(validator_id));
 		log::debug!(target: LOG_TARGET, "Disabled validator marked for auto removal.");
-	}
-
-	// Removes offline validators from the validator set and clears the offline
-	// cache. It is called in the session change hook and removes the validators
-	// who were reported offline during the session that is ending. We do not
-	// check for `MinAuthorities` here, because the offline validators will not
-	// produce blocks and will have the same overall effect on the runtime.
-	fn remove_offline_validators() {
-		let validators_to_remove = <OfflineValidators<T>>::get();
-
-		// Validators will be always removed because there is not any kid of checking
-		let _ = Self::do_remove_validators(&validators_to_remove, false, RemovalReason::Offline);
-
-		// Clear the offline validator list to avoid repeated deletion.
-		<OfflineValidators<T>>::put(Vec::<T::ValidatorId>::new());
 	}
 
 	// Removes disabled validators from the validator set.
@@ -264,11 +228,8 @@ impl<T: Config> Pallet<T> {
 	fn remove_disabled_validators() {
 		let validators_to_remove = <DisabledValidators<T>>::get();
 
-		match Self::do_remove_validators(
-			&validators_to_remove,
-			T::MinAuthoritiesOnDisabled::get(),
-			RemovalReason::Disabled,
-		) {
+		match Self::do_remove_validators(&validators_to_remove, T::MinAuthoritiesOnDisabled::get())
+		{
 			Ok(_) => {
 				// Clear the offline validator list to avoid repeated deletion.
 				<DisabledValidators<T>>::put(Vec::<T::ValidatorId>::new());
@@ -288,7 +249,6 @@ impl<T: Config> Pallet<T> {
 	fn do_remove_validators(
 		validators: &Vec<T::ValidatorId>,
 		check_min_authorities: bool,
-		reason: RemovalReason,
 	) -> Result<(), DispatchError> {
 		let validators_len_to_remove = validators.len();
 		let current_validators_len = Self::validators().len();
@@ -308,9 +268,8 @@ impl<T: Config> Pallet<T> {
 
 		log::debug!(
 			target: LOG_TARGET,
-			"Initiated removal of {:?} validators, reason: {:?}.",
+			"Initiated removal of {:?} validators.",
 			validators.len(),
-			reason
 		);
 
 		Ok(())
@@ -327,9 +286,6 @@ impl<T: Config> Pallet<T> {
 impl<T: Config> pallet_session::SessionManager<T::ValidatorId> for Pallet<T> {
 	// Plan a new session and provide new validator set.
 	fn new_session(_new_index: u32) -> Option<Vec<T::ValidatorId>> {
-		// Remove any offline validators. This will only work when the runtime
-		// also has the im-online pallet.
-		Self::remove_offline_validators();
 		// Remove any disabled validators. This will only work when the runtime
 		// also has the offences and session::historical pallets
 		Self::remove_disabled_validators();
@@ -342,29 +298,6 @@ impl<T: Config> pallet_session::SessionManager<T::ValidatorId> for Pallet<T> {
 	fn end_session(_end_index: u32) {}
 
 	fn start_session(_start_index: u32) {}
-}
-
-// Offence reporting and unresponsiveness management.
-// This is for the ImOnline pallet integration.
-impl<T: Config, O: Offence<(T::ValidatorId, T::ValidatorId)>>
-	ReportOffence<T::AccountId, (T::ValidatorId, T::ValidatorId), O> for Pallet<T>
-{
-	fn report_offence(_reporters: Vec<T::AccountId>, offence: O) -> Result<(), OffenceError> {
-		let offenders = offence.offenders();
-
-		for (v, _) in offenders.into_iter() {
-			Self::mark_offline_for_removal(v);
-		}
-
-		Ok(())
-	}
-
-	fn is_known_offence(
-		_offenders: &[(T::ValidatorId, T::ValidatorId)],
-		_time_slot: &O::TimeSlot,
-	) -> bool {
-		false
-	}
 }
 
 // Implementation of `OnOffenceHandler`.
