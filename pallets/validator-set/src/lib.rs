@@ -89,11 +89,10 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// New validator addition initiated. Effective in ~2 sessions.
-		ValidatorAdditionInitiated(T::ValidatorId),
-
-		/// Validator removal initiated. Effective in ~2 sessions.
-		ValidatorRemovalInitiated(T::ValidatorId),
+		/// New validator added. Effective in session after next.
+		ValidatorAdded(T::ValidatorId),
+		/// Validator removed. Effective in session after next.
+		ValidatorRemoved(T::ValidatorId),
 	}
 
 	// Errors inform users that something went wrong.
@@ -144,9 +143,7 @@ pub mod pallet {
 			ensure!(!<Validators<T>>::get().contains(&validator_id), Error::<T>::Duplicate);
 			<Validators<T>>::mutate(|v| v.push(validator_id.clone()));
 
-			Self::deposit_event(Event::ValidatorAdditionInitiated(validator_id.clone()));
-			log::debug!(target: LOG_TARGET, "Validator addition initiated.");
-
+			Self::deposit_event(Event::ValidatorAdded(validator_id));
 			Ok(())
 		}
 
@@ -175,9 +172,7 @@ pub mod pallet {
 
 			<Validators<T>>::put(validators);
 
-			Self::deposit_event(Event::ValidatorRemovalInitiated(validator_id.clone()));
-			log::debug!(target: LOG_TARGET, "Validator removal initiated.");
-
+			Self::deposit_event(Event::ValidatorRemoved(validator_id));
 			Ok(())
 		}
 	}
