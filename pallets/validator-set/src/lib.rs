@@ -284,10 +284,10 @@ impl<T: Config> Pallet<T> {
 			Err(_) => {
 				// Number of active validators was going to drop under `MinAuthorities`
 				log::error!(
-				  target: LOG_TARGET,
-				  "Number of validators was going to drop below MinAuthorities ({:?}) after removing {:?} disabled validators",
-				  T::MinAuthorities::get(),
-				  validators_to_remove.len(),
+					target: LOG_TARGET,
+					"Number of validators was going to drop below MinAuthorities ({:?}) after removing {:?} disabled validators",
+					T::MinAuthorities::get(),
+					validators_to_remove.len(),
 				);
 			},
 		}
@@ -315,11 +315,11 @@ impl<T: Config> Pallet<T> {
 		<Validators<T>>::mutate(|vs| vs.retain(|v| !validators.contains(v)));
 
 		log::debug!(
-			  target: LOG_TARGET,
-			  "Initiated removal of {:?} validators, reason: {:?}.",
-			  validators.len(),
-		reason
-		  );
+			target: LOG_TARGET,
+			"Initiated removal of {:?} validators, reason: {:?}.",
+			validators.len(),
+			reason
+		);
 
 		Ok(())
 	}
