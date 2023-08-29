@@ -128,7 +128,12 @@ fn testnet_genesis(
 			..Default::default()
 		},
 		validator_set: ValidatorSetConfig {
-			initial_validators: initial_authorities.iter().map(|x| x.0.clone()).collect(),
+			initial_validators: initial_authorities
+				.iter()
+				.map(|x| x.0.clone())
+				.collect::<Vec<_>>()
+				.try_into()
+				.expect("Too many initial authorities"),
 		},
 		session: SessionConfig {
 			keys: initial_authorities

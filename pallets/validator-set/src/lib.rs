@@ -14,18 +14,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! # Validator Set Pallet
+//! Validator set pallet. Maintains a set of validators which can be added to or removed from by a
+//! privileged origin.
 //!
-//! The Validator Set Pallet allows addition and removal of
-//! authorities/validators via extrinsics (transaction calls), in
-//! Substrate-based PoA networks. It also integrates with the im-online pallet
-//! to automatically remove offline validators.
+//! Provides a [`SessionManager`] implementation which returns the current validator set from
+//! `new_session`. Also provides an [`OnOffenceHandler`] implementation which removes the offending
+//! validators from the set (if they would be slashed) and temporarily disables them according to
+//! the [`DisableStrategy`].
 //!
-//! The pallet depends on the Session pallet and implements related traits for session
-//! management. Currently it uses periodic session rotation provided by the
-//! session pallet to automatically rotate sessions. For this reason, the
-//! validator addition and removal becomes effective only after 2 sessions
-//! (queuing + applying).
+//! This pallet directly depends on [`pallet_session`] and [`pallet_session::historical`].
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -34,57 +31,66 @@ mod mock;
 mod tests;
 pub mod weights;
 
-use frame_support::{ensure, pallet_prelude::*, traits::Get, DefaultNoBound};
-use frame_system::pallet_prelude::*;
+use codec::{Decode, Encode, MaxEncodedLen};
+use frame_support::{ensure, pallet_prelude::Weight, traits::Get, DefaultNoBound};
 pub use pallet::*;
+use pallet_session::SessionManager;
 use sp_runtime::Perbill;
 use sp_staking::{
 	offence::{DisableStrategy, OffenceDetails, OnOffenceHandler},
 	SessionIndex,
 };
-use sp_std::prelude::*;
-pub use weights::*;
+use sp_std::vec::Vec;
+pub use weights::WeightInfo;
 
-pub const LOG_TARGET: &str = "runtime::validator-set";
+/// Per-validator data stored by this pallet.
+#[derive(Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
+struct Validator;
 
 #[frame_support::pallet()]
 pub mod pallet {
 	use super::*;
+	use frame_support::pallet_prelude::*;
+	use frame_system::pallet_prelude::*;
 
-	/// Configure the pallet by specifying the parameters and types on which it
-	/// depends.
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_session::Config {
-		/// The Event type.
+		/// The overarching event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+		/// Weight information for extrinsics in this pallet.
+		type WeightInfo: WeightInfo;
 
 		/// Origin for adding or removing a validator.
 		type AddRemoveOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
-		/// Minimum number of validators to leave in the validator set during
-		/// auto removal.
+		/// Maximum number of validators.
 		#[pallet::constant]
-		type MinAuthorities: Get<u32>;
-
-		/// Check `MinAuthorities` before removing validators when disabled
-		#[pallet::constant]
-		type MinAuthoritiesOnDisabled: Get<bool>;
-
-		/// Information on runtime weights.
-		type WeightInfo: WeightInfo;
+		type MaxAuthorities: Get<u32>;
 	}
 
 	#[pallet::pallet]
-	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
+	/// Validator set. Changes to this will take effect in the session after next.
 	#[pallet::storage]
-	#[pallet::getter(fn validators)]
-	pub type Validators<T: Config> = StorageValue<_, Vec<T::ValidatorId>, ValueQuery>;
+	pub(super) type Validators<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::ValidatorId, Validator, OptionQuery>;
 
+	/// Number of validators in `Validators`.
 	#[pallet::storage]
-	#[pallet::getter(fn disabled_validators)]
-	pub type DisabledValidators<T: Config> = StorageValue<_, Vec<T::ValidatorId>, ValueQuery>;
+	pub(super) type NumValidators<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+	/// Validators that should be disabled in the next session.
+	///
+	/// Validator removal takes effect in the session after next. Validator disabling takes effect
+	/// until the end of the session. We extend disables to cover the next session as well (by
+	/// adding validators here when we disable them) so that when a validator is both disabled and
+	/// removed in response to an offence, there isn't a gap where it is actually present and
+	/// enabled.
+	#[pallet::storage]
+	pub(super) type NextDisabledValidators<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::ValidatorId, (), OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -97,28 +103,35 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Target (post-removal) validator count is below the minimum.
-		TooLowValidatorCount,
 		/// Validator is already in the validator set.
 		Duplicate,
+		/// Validator is not in the validator set.
+		NotAValidator,
+		/// Adding the validator would take the validator count above the maximum.
+		TooManyValidators,
 	}
 
 	#[pallet::genesis_config]
 	#[derive(DefaultNoBound)]
 	pub struct GenesisConfig<T: Config> {
-		pub initial_validators: Vec<T::ValidatorId>,
+		pub initial_validators: BoundedVec<T::ValidatorId, T::MaxAuthorities>,
 	}
 
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
-			assert!(
-				self.initial_validators.len() >= T::MinAuthorities::get() as usize,
-				"Initial set of validators must be at least T::MinAuthorities"
-			);
-			assert!(<Validators<T>>::get().is_empty(), "Validators are already initialized!");
-
-			<Validators<T>>::put(&self.initial_validators);
+			assert!(Validators::<T>::iter().next().is_none(), "Validators are already initialized");
+			assert_eq!(NumValidators::<T>::get(), 0);
+			for validator_id in &self.initial_validators {
+				Validators::<T>::mutate(validator_id, |validator| {
+					assert!(
+						validator.is_none(),
+						"Validator appears twice in initial set of validators"
+					);
+					*validator = Some(Validator);
+				});
+			}
+			NumValidators::<T>::put(self.initial_validators.len() as u32);
 		}
 	}
 
@@ -126,18 +139,29 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Add a new validator.
 		///
-		/// New validator's session keys should be set in Session pallet before
-		/// calling this.
+		/// The addition will take effect the session after next.
 		///
-		/// The origin can be configured using the `AddRemoveOrigin` type in the
-		/// host runtime. Can also be set to sudo/root.
+		/// The origin for this call must be the pallet's `AddRemoveOrigin`. Emits
+		/// [`ValidatorAdded`](Event::ValidatorAdded) when successful.
 		#[pallet::call_index(0)]
-		#[pallet::weight(<T as pallet::Config>::WeightInfo::add_validator())]
+		#[pallet::weight(<T as Config>::WeightInfo::add_validator())]
 		pub fn add_validator(origin: OriginFor<T>, validator_id: T::ValidatorId) -> DispatchResult {
 			T::AddRemoveOrigin::ensure_origin(origin)?;
 
-			ensure!(!<Validators<T>>::get().contains(&validator_id), Error::<T>::Duplicate);
-			<Validators<T>>::mutate(|v| v.push(validator_id.clone()));
+			Validators::<T>::mutate(&validator_id, |validator| {
+				if !validator.is_none() {
+					return Err(Error::<T>::Duplicate)
+				}
+				*validator = Some(Validator);
+				Ok(())
+			})?;
+			NumValidators::<T>::mutate(|num| {
+				if *num >= T::MaxAuthorities::get() {
+					return Err(Error::<T>::TooManyValidators)
+				}
+				*num += 1;
+				Ok(())
+			})?;
 
 			Self::deposit_event(Event::ValidatorAdded(validator_id));
 			Ok(())
@@ -145,28 +169,20 @@ pub mod pallet {
 
 		/// Remove a validator.
 		///
-		/// The origin can be configured using the `AddRemoveOrigin` type in the
-		/// host runtime. Can also be set to sudo/root.
+		/// The removal will take effect the session after next.
+		///
+		/// The origin for this call must be the pallet's `AddRemoveOrigin`. Emits
+		/// [`ValidatorRemoved`](Event::ValidatorRemoved) when successful.
 		#[pallet::call_index(1)]
-		#[pallet::weight(<T as pallet::Config>::WeightInfo::remove_validator())]
+		#[pallet::weight(<T as Config>::WeightInfo::remove_validator())]
 		pub fn remove_validator(
 			origin: OriginFor<T>,
 			validator_id: T::ValidatorId,
 		) -> DispatchResult {
 			T::AddRemoveOrigin::ensure_origin(origin)?;
 
-			let mut validators = <Validators<T>>::get();
-
-			// Ensuring that the post removal, target validator count doesn't go
-			// below the minimum.
-			ensure!(
-				validators.len().saturating_sub(1) >= T::MinAuthorities::get() as usize,
-				Error::<T>::TooLowValidatorCount
-			);
-
-			validators.retain(|v| *v != validator_id);
-
-			<Validators<T>>::put(validators);
+			ensure!(Validators::<T>::take(&validator_id).is_some(), Error::<T>::NotAValidator);
+			NumValidators::<T>::mutate(|num| *num -= 1);
 
 			Self::deposit_event(Event::ValidatorRemoved(validator_id));
 			Ok(())
@@ -174,88 +190,20 @@ pub mod pallet {
 	}
 }
 
-impl<T: Config> Pallet<T> {
-	// Adds disabled validators to a local cache for removal on new session.
-	fn mark_disabled_for_removal(validator_id: T::ValidatorId) {
-		<DisabledValidators<T>>::mutate(|v| v.push(validator_id));
-		log::debug!(target: LOG_TARGET, "Disabled validator marked for auto removal.");
+impl<T: Config> SessionManager<T::ValidatorId> for Pallet<T> {
+	fn new_session(_new_index: SessionIndex) -> Option<Vec<T::ValidatorId>> {
+		Some(Validators::<T>::iter_keys().collect())
 	}
 
-	// Removes disabled validators from the validator set.
-	// It is called in the session change hook and removes the validators
-	// who were disabled.
-	fn remove_disabled_validators() {
-		let validators_to_remove = <DisabledValidators<T>>::get();
+	fn end_session(_end_index: SessionIndex) {}
 
-		match Self::do_remove_validators(&validators_to_remove, T::MinAuthoritiesOnDisabled::get())
-		{
-			Ok(_) => {
-				// Clear the offline validator list to avoid repeated deletion.
-				<DisabledValidators<T>>::put(Vec::<T::ValidatorId>::new());
-			},
-			Err(_) => {
-				// Number of active validators was going to drop under `MinAuthorities`
-				log::error!(
-					target: LOG_TARGET,
-					"Number of validators was going to drop below MinAuthorities ({:?}) after removing {:?} disabled validators",
-					T::MinAuthorities::get(),
-					validators_to_remove.len(),
-				);
-			},
+	fn start_session(_start_index: SessionIndex) {
+		for (validator_id, _) in NextDisabledValidators::<T>::drain() {
+			pallet_session::Pallet::<T>::disable(&validator_id);
 		}
-	}
-
-	fn do_remove_validators(
-		validators: &Vec<T::ValidatorId>,
-		check_min_authorities: bool,
-	) -> Result<(), DispatchError> {
-		let validators_len_to_remove = validators.len();
-		let current_validators_len = Self::validators().len();
-
-		if check_min_authorities {
-			if let Some(validators_left_len) =
-				current_validators_len.checked_sub(validators_len_to_remove)
-			{
-				ensure!(
-					validators_left_len >= T::MinAuthorities::get() as usize,
-					Error::<T>::TooLowValidatorCount
-				);
-			}
-		}
-
-		<Validators<T>>::mutate(|vs| vs.retain(|v| !validators.contains(v)));
-
-		log::debug!(
-			target: LOG_TARGET,
-			"Initiated removal of {:?} validators.",
-			validators.len(),
-		);
-
-		Ok(())
 	}
 }
 
-// Provides the new set of validators to the session module when session is
-// being rotated.
-impl<T: Config> pallet_session::SessionManager<T::ValidatorId> for Pallet<T> {
-	// Plan a new session and provide new validator set.
-	fn new_session(_new_index: u32) -> Option<Vec<T::ValidatorId>> {
-		// Remove any disabled validators. This will only work when the runtime
-		// also has the offences and session::historical pallets
-		Self::remove_disabled_validators();
-
-		log::debug!(target: LOG_TARGET, "New session called; updated validator set provided.");
-
-		Some(Self::validators())
-	}
-
-	fn end_session(_end_index: u32) {}
-
-	fn start_session(_start_index: u32) {}
-}
-
-// Implementation of `OnOffenceHandler`.
-// This is for the Offences + Historical pallets integration.
 impl<T: Config>
 	OnOffenceHandler<T::AccountId, pallet_session::historical::IdentificationTuple<T>, Weight>
 	for Pallet<T>
@@ -267,34 +215,46 @@ where
 			T::AccountId,
 			pallet_session::historical::IdentificationTuple<T>,
 		>],
-		_slash_fraction: &[Perbill],
+		slash_fractions: &[Perbill],
 		_slash_session: SessionIndex,
 		disable_strategy: DisableStrategy,
 	) -> Weight {
 		let mut weight = Weight::zero();
 		let db_weight = T::DbWeight::get();
 
-		offenders.iter().for_each(|o| {
-			let offender = o.offender.clone();
+		for (offender, slash_fraction) in offenders.iter().zip(slash_fractions) {
+			// Determine actions to take with this validator
+			let remove = !slash_fraction.is_zero();
+			let disable = match disable_strategy {
+				DisableStrategy::Never => false,
+				DisableStrategy::WhenSlashed => !slash_fraction.is_zero(),
+				DisableStrategy::Always => true,
+			};
 
-			match disable_strategy {
-				DisableStrategy::WhenSlashed | DisableStrategy::Always => {
-					if pallet_session::Pallet::<T>::disable(&offender.0) {
-						// Validator was not yet disabled, it is added to pallet_session
-						// `DisabledValidators`
-						weight.saturating_accrue(db_weight.reads_writes(1, 1));
-						// Validator is added to local `DisabledValidators`
-						Self::mark_disabled_for_removal(offender.0.clone());
-						weight.saturating_accrue(db_weight.reads_writes(1, 1));
-					} else {
-						// Validator was already disabled, it is not added to `DisabledValidators`
-						// (no writes)
-						weight.saturating_accrue(db_weight.reads(1));
-					}
-				},
-				DisableStrategy::Never => {},
+			if remove {
+				// Note that the validator might already have been removed (explicitly, for another
+				// offence, or even by an earlier report of this offence)
+				weight.saturating_accrue(db_weight.reads_writes(1, 1));
+				if Validators::<T>::take(&offender.offender.0).is_some() {
+					weight.saturating_accrue(db_weight.reads_writes(1, 1));
+					NumValidators::<T>::mutate(|num| *num -= 1);
+				}
 			}
-		});
+
+			if disable {
+				// Lookup validator index in Validators, check if in DisabledValidators
+				weight.saturating_accrue(db_weight.reads(2));
+				if pallet_session::Pallet::<T>::disable(&offender.offender.0) {
+					// Added to DisabledValidators
+					weight.saturating_accrue(db_weight.writes(1));
+				}
+
+				// Also disable in the next session, as removal won't take effect until the session
+				// after next
+				weight.saturating_accrue(db_weight.writes(1));
+				NextDisabledValidators::<T>::insert(&offender.offender.0, ());
+			}
+		}
 
 		weight
 	}

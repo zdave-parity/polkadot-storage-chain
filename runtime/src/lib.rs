@@ -167,7 +167,6 @@ parameter_types! {
 		::max_with_normal_ratio(10 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
 	pub const SS58Prefix: u8 = 42;
 
-	pub const MinAuthorities: u32 = 2; // TODO
 	pub const MaxAuthorities: u32 = 100; // TODO
 
 	pub const EquivocationReportPeriodInEpochs: u64 = 168;
@@ -246,10 +245,9 @@ impl frame_system::Config for Runtime {
 
 impl pallet_validator_set::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type AddRemoveOrigin = EnsureRoot<AccountId>;
-	type MinAuthorities = MinAuthorities;
-	type MinAuthoritiesOnDisabled = ConstBool<true>;
 	type WeightInfo = pallet_validator_set::weights::SubstrateWeight<Runtime>;
+	type AddRemoveOrigin = EnsureRoot<AccountId>;
+	type MaxAuthorities = MaxAuthorities;
 }
 
 impl pallet_session::Config for Runtime {
