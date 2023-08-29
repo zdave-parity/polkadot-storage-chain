@@ -33,7 +33,7 @@ use sp_runtime::{
 	BuildStorage,
 };
 
-pub type Block = frame_system::mocking::MockBlock<Test>;
+type Block = frame_system::mocking::MockBlock<Test>;
 
 // Configure a mock runtime to test the pallet.
 frame_support::construct_runtime!(
