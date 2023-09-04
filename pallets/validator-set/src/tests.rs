@@ -112,6 +112,17 @@ fn too_many_validators_check() {
 }
 
 #[test]
+fn not_a_validator_check() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(ValidatorSet::remove_validator(RuntimeOrigin::root(), 3));
+		assert_noop!(
+			ValidatorSet::remove_validator(RuntimeOrigin::root(), 3),
+			Error::NotAValidator
+		);
+	});
+}
+
+#[test]
 fn remove_purges_keys_and_decs_providers() {
 	new_test_ext().execute_with(|| {
 		assert!(Session::is_registered(&3));
