@@ -19,8 +19,7 @@
 #![cfg(test)]
 
 use super::mock::{
-	active_validators, new_test_ext, next_session, AccountId, RuntimeOrigin, Session, System, Test,
-	ValidatorSet,
+	new_test_ext, next_session, AccountId, RuntimeOrigin, Session, System, Test, ValidatorSet,
 };
 use frame_support::{
 	assert_noop, assert_ok,
@@ -34,6 +33,10 @@ type Error = super::Error<Test>;
 
 fn validators() -> HashSet<AccountId> {
 	ValidatorSet::validators().into_iter().collect()
+}
+
+fn active_validators() -> HashSet<AccountId> {
+	Session::validators().into_iter().collect()
 }
 
 #[test]

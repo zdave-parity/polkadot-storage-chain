@@ -29,10 +29,7 @@ use sp_runtime::{
 	traits::{BlakeTwo256, ConvertInto, IdentityLookup},
 	BuildStorage,
 };
-use std::{
-	cell::{Cell, RefCell},
-	collections::HashSet,
-};
+use std::cell::Cell;
 
 pub type AccountId = u64;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -45,42 +42,24 @@ frame_support::construct_runtime!(
 	}
 );
 
-thread_local! {
-	static ACTIVE_VALIDATORS: RefCell<HashSet<AccountId>> = RefCell::new(HashSet::new());
-	static END_SESSION: Cell<bool> = Cell::new(false);
-}
-
 pub struct MockSessionHandler;
 
 impl OneSessionHandler<AccountId> for MockSessionHandler {
 	type Key = UintAuthorityId;
 
-	fn on_genesis_session<'a, I: 'a>(validators: I)
+	fn on_genesis_session<'a, I: 'a>(_validators: I)
 	where
 		I: Iterator<Item = (&'a AccountId, Self::Key)>,
 	{
-		Self::set_validators(validators);
 	}
 
-	fn on_new_session<'a, I: 'a>(changed: bool, validators: I, _queued_validators: I)
+	fn on_new_session<'a, I: 'a>(_changed: bool, _validators: I, _queued_validators: I)
 	where
 		I: Iterator<Item = (&'a AccountId, Self::Key)>,
 	{
-		if changed {
-			Self::set_validators(validators);
-		}
 	}
 
 	fn on_disabled(_i: u32) {}
-}
-
-impl MockSessionHandler {
-	fn set_validators<'a, I: 'a>(validators: I)
-	where
-		I: Iterator<Item = (&'a AccountId, UintAuthorityId)>,
-	{
-		ACTIVE_VALIDATORS.with(|v| *v.borrow_mut() = validators.map(|(who, _)| *who).collect());
-	}
 }
 
 impl sp_runtime::BoundToRuntimeAppPublic for MockSessionHandler {
@@ -99,16 +78,16 @@ impl From<AccountId> for MockSessionKeys {
 	}
 }
 
+thread_local! {
+	static END_SESSION: Cell<bool> = Cell::new(false);
+}
+
 pub struct MockShouldEndSession;
 
 impl<T> ShouldEndSession<T> for MockShouldEndSession {
 	fn should_end_session(_now: T) -> bool {
 		END_SESSION.replace(false)
 	}
-}
-
-pub fn active_validators() -> HashSet<AccountId> {
-	ACTIVE_VALIDATORS.with(|v| v.borrow().clone())
 }
 
 fn next_block() {
