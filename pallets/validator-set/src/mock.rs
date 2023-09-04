@@ -167,7 +167,7 @@ impl pallet_validator_set::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = ();
 	type AddRemoveOrigin = EnsureRoot<Self::AccountId>;
-	type MaxAuthorities = ConstU32<10>;
+	type MaxAuthorities = ConstU32<6>;
 }
 
 impl pallet_session::Config for Test {

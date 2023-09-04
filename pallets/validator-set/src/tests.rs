@@ -99,6 +99,19 @@ fn duplicate_check() {
 }
 
 #[test]
+fn too_many_validators_check() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(ValidatorSet::add_validator(RuntimeOrigin::root(), 4));
+		assert_ok!(ValidatorSet::add_validator(RuntimeOrigin::root(), 5));
+		assert_ok!(ValidatorSet::add_validator(RuntimeOrigin::root(), 6));
+		assert_noop!(
+			ValidatorSet::add_validator(RuntimeOrigin::root(), 7),
+			Error::TooManyValidators
+		);
+	});
+}
+
+#[test]
 fn remove_purges_keys_and_decs_providers() {
 	new_test_ext().execute_with(|| {
 		assert!(Session::is_registered(&3));
