@@ -203,8 +203,9 @@ mod benchmarks {
 	fn remove_expired_account_authorization() -> Result<(), BenchmarkError> {
 		let origin = T::Authorizer::try_successful_origin()
 			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
-		let who = whitelisted_caller();
-		TransactionStorage::<T>::authorize_account(origin, who.clone(), 1, 1);
+		let who: T::AccountId = whitelisted_caller();
+		TransactionStorage::<T>::authorize_account(origin, who.clone(), 1, 1)
+			.map_err(|_| BenchmarkError::Stop("unable to authorize account"))?;
 
 		let period = T::AuthorizationPeriod::get();
 		let now = frame_system::Pallet::<T>::block_number();
@@ -213,7 +214,7 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(RawOrigin::None, who.clone());
 
-		assert_last_event::<T>(Event::AccountAuthorizationRemoved { who });
+		assert_last_event::<T>(Event::ExpiredAccountAuthorizationRemoved { who }.into());
 		Ok(())
 	}
 
@@ -222,7 +223,8 @@ mod benchmarks {
 		let origin = T::Authorizer::try_successful_origin()
 			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
 		let hash = [0; 32];
-		TransactionStorage::<T>::authorize_preimage(origin, hash, 1);
+		TransactionStorage::<T>::authorize_preimage(origin, hash, 1)
+			.map_err(|_| BenchmarkError::Stop("unable to authorize preimage"))?;
 
 		let period = T::AuthorizationPeriod::get();
 		let now = frame_system::Pallet::<T>::block_number();
@@ -231,7 +233,7 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(RawOrigin::None, hash);
 
-		assert_last_event::<T>(Event::PreimageAuthorizationRemoved { hash });
+		assert_last_event::<T>(Event::ExpiredPreimageAuthorizationRemoved { hash }.into());
 		Ok(())
 	}
 
