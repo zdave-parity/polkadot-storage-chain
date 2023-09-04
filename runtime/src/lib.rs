@@ -493,6 +493,7 @@ mod benches {
 		[pallet_timestamp, Timestamp]
 		[pallet_sudo, Sudo]
 		[pallet_transaction_storage, TransactionStorage]
+		[pallet_validator_set, ValidatorSet]
 	);
 }
 

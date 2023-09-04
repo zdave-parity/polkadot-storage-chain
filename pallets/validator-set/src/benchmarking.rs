@@ -17,27 +17,51 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use super::*;
-use frame_benchmarking::v1::{account, benchmarks, BenchmarkError};
+use frame_benchmarking::v2::{account, benchmarks, impl_benchmark_test_suite, vec, BenchmarkError};
 use frame_support::traits::EnsureOrigin;
+use frame_system::EventRecord;
 
 const SEED: u32 = 0;
 
-benchmarks! {
-	add_validator {
-		let origin =
-			T::AddRemoveOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-		let validator: T::ValidatorId = account("validator", 0, SEED);
-	}: _<T::RuntimeOrigin>(origin, validator)
+fn assert_last_event<T: Config>(generic_event: <T as Config>::RuntimeEvent) {
+	let events = frame_system::Pallet::<T>::events();
+	let system_event: <T as frame_system::Config>::RuntimeEvent = generic_event.into();
+	let EventRecord { event, .. } = &events[events.len() - 1];
+	assert_eq!(event, &system_event);
+}
 
-	remove_validator {
-		let origin =
-			T::AddRemoveOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-		let validator: T::ValidatorId = account("validator", 0, SEED);
-	}: _<T::RuntimeOrigin>(origin, validator)
+#[benchmarks]
+mod benchmarks {
+	use super::*;
 
-	impl_benchmark_test_suite!(
-		ValidatorSet,
-		crate::mock::new_test_ext(),
-		crate::mock::Test,
-	);
+	#[benchmark]
+	fn add_validator() -> Result<(), BenchmarkError> {
+		let origin = T::AddRemoveOrigin::try_successful_origin()
+			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
+		let who: T::AccountId = account("validator", 0, SEED);
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, who.clone());
+
+		assert_last_event::<T>(Event::ValidatorAdded(who).into());
+		Ok(())
+	}
+
+	#[benchmark]
+	fn remove_validator() -> Result<(), BenchmarkError> {
+		let origin = T::AddRemoveOrigin::try_successful_origin()
+			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
+		let who: T::AccountId = account("validator", 0, SEED);
+
+		Pallet::<T>::add_validator(origin.clone(), who.clone())
+			.map_err(|_| BenchmarkError::Stop("unable to add validator"))?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, who.clone());
+
+		assert_last_event::<T>(Event::ValidatorRemoved(who).into());
+		Ok(())
+	}
+
+	impl_benchmark_test_suite!(ValidatorSet, crate::mock::new_test_ext(), crate::mock::Test);
 }
