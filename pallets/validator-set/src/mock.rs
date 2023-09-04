@@ -18,147 +18,123 @@
 
 #![cfg(test)]
 
-use super::*;
-use crate as validator_set;
-use frame_support::{parameter_types, BasicExternalities};
+use crate as pallet_validator_set;
+use frame_support::traits::{ConstU32, ConstU64, OnFinalize, OnInitialize, OneSessionHandler};
 use frame_system::EnsureRoot;
-use pallet_session::*;
-use sp_core::{crypto::key_types::DUMMY, H256};
+use pallet_session::ShouldEndSession;
+use sp_core::H256;
 use sp_runtime::{
 	impl_opaque_keys,
 	testing::UintAuthorityId,
-	traits::{BlakeTwo256, IdentityLookup, OpaqueKeys},
-	BuildStorage, KeyTypeId, RuntimeAppPublic,
+	traits::{BlakeTwo256, ConvertInto, IdentityLookup},
+	BuildStorage,
 };
-use std::cell::RefCell;
+use std::{
+	cell::{Cell, RefCell},
+	collections::HashSet,
+};
 
-impl_opaque_keys! {
-	pub struct MockSessionKeys {
-		pub dummy: UintAuthorityId,
-	}
-}
-
-impl From<UintAuthorityId> for MockSessionKeys {
-	fn from(dummy: UintAuthorityId) -> Self {
-		Self { dummy }
-	}
-}
-
-pub const KEY_ID_A: KeyTypeId = KeyTypeId([4; 4]);
-pub const KEY_ID_B: KeyTypeId = KeyTypeId([9; 4]);
-
-#[derive(Debug, Clone, codec::Encode, codec::Decode, PartialEq, Eq)]
-pub struct PreUpgradeMockSessionKeys {
-	pub a: [u8; 32],
-	pub b: [u8; 64],
-}
-
-impl OpaqueKeys for PreUpgradeMockSessionKeys {
-	type KeyTypeIdProviders = ();
-
-	fn key_ids() -> &'static [KeyTypeId] {
-		&[KEY_ID_A, KEY_ID_B]
-	}
-
-	fn get_raw(&self, i: KeyTypeId) -> &[u8] {
-		match i {
-			i if i == KEY_ID_A => &self.a[..],
-			i if i == KEY_ID_B => &self.b[..],
-			_ => &[],
-		}
-	}
-}
-
+pub type AccountId = u64;
 type Block = frame_system::mocking::MockBlock<Test>;
 
 frame_support::construct_runtime!(
 	pub struct Test {
 		System: frame_system,
-		ValidatorSet: validator_set,
+		ValidatorSet: pallet_validator_set,
 		Session: pallet_session,
 	}
 );
 
 thread_local! {
-	pub static VALIDATORS: RefCell<Vec<u64>> = RefCell::new(vec![1, 2, 3]);
-	pub static NEXT_VALIDATORS: RefCell<Vec<u64>> = RefCell::new(vec![1, 2, 3]);
-	pub static AUTHORITIES: RefCell<Vec<UintAuthorityId>> =
-		RefCell::new(vec![UintAuthorityId(1), UintAuthorityId(2), UintAuthorityId(3)]);
-	pub static FORCE_SESSION_END: RefCell<bool> = RefCell::new(false);
-	pub static SESSION_LENGTH: RefCell<u64> = RefCell::new(2);
-	pub static SESSION_CHANGED: RefCell<bool> = RefCell::new(false);
-	pub static DISABLED: RefCell<bool> = RefCell::new(false);
-	pub static BEFORE_SESSION_END_CALLED: RefCell<bool> = RefCell::new(false);
+	static ACTIVE_VALIDATORS: RefCell<HashSet<AccountId>> = RefCell::new(HashSet::new());
+	static END_SESSION: Cell<bool> = Cell::new(false);
 }
 
-pub struct TestSessionHandler;
-impl SessionHandler<u64> for TestSessionHandler {
-	const KEY_TYPE_IDS: &'static [sp_runtime::KeyTypeId] = &[UintAuthorityId::ID];
-	fn on_genesis_session<T: OpaqueKeys>(_validators: &[(u64, T)]) {}
-	fn on_new_session<T: OpaqueKeys>(
-		changed: bool,
-		validators: &[(u64, T)],
-		_queued_validators: &[(u64, T)],
-	) {
-		SESSION_CHANGED.with(|l| *l.borrow_mut() = changed);
-		AUTHORITIES.with(|l| {
-			*l.borrow_mut() = validators
-				.iter()
-				.map(|(_, id)| id.get::<UintAuthorityId>(DUMMY).unwrap_or_default())
-				.collect()
-		});
+pub struct MockSessionHandler;
+
+impl OneSessionHandler<AccountId> for MockSessionHandler {
+	type Key = UintAuthorityId;
+
+	fn on_genesis_session<'a, I: 'a>(validators: I)
+	where
+		I: Iterator<Item = (&'a AccountId, Self::Key)>,
+	{
+		Self::set_validators(validators);
 	}
-	fn on_disabled(_validator_index: u32) {
-		DISABLED.with(|l| *l.borrow_mut() = true)
+
+	fn on_new_session<'a, I: 'a>(changed: bool, validators: I, _queued_validators: I)
+	where
+		I: Iterator<Item = (&'a AccountId, Self::Key)>,
+	{
+		if changed {
+			Self::set_validators(validators);
+		}
 	}
-	fn on_before_session_ending() {
-		BEFORE_SESSION_END_CALLED.with(|b| *b.borrow_mut() = true);
-	}
+
+	fn on_disabled(_i: u32) {}
 }
 
-pub struct TestShouldEndSession;
-impl ShouldEndSession<u64> for TestShouldEndSession {
-	fn should_end_session(now: u64) -> bool {
-		let l = SESSION_LENGTH.with(|l| *l.borrow());
-		now % l == 0 ||
-			FORCE_SESSION_END.with(|l| {
-				let r = *l.borrow();
-				*l.borrow_mut() = false;
-				r
-			})
+impl MockSessionHandler {
+	fn set_validators<'a, I: 'a>(validators: I)
+	where
+		I: Iterator<Item = (&'a AccountId, UintAuthorityId)>,
+	{
+		ACTIVE_VALIDATORS.with(|v| *v.borrow_mut() = validators.map(|(who, _)| *who).collect());
 	}
 }
 
-pub fn authorities() -> Vec<UintAuthorityId> {
-	AUTHORITIES.with(|l| l.borrow().to_vec())
+impl sp_runtime::BoundToRuntimeAppPublic for MockSessionHandler {
+	type Public = UintAuthorityId;
+}
+
+impl_opaque_keys! {
+	pub struct MockSessionKeys {
+		pub mock: MockSessionHandler,
+	}
+}
+
+impl From<AccountId> for MockSessionKeys {
+	fn from(who: AccountId) -> Self {
+		Self { mock: UintAuthorityId(who) }
+	}
+}
+
+pub struct MockShouldEndSession;
+
+impl<T> ShouldEndSession<T> for MockShouldEndSession {
+	fn should_end_session(_now: T) -> bool {
+		END_SESSION.replace(false)
+	}
+}
+
+pub fn active_validators() -> HashSet<AccountId> {
+	ACTIVE_VALIDATORS.with(|v| v.borrow().clone())
+}
+
+fn next_block() {
+	System::on_finalize(System::block_number());
+	System::set_block_number(System::block_number() + 1);
+	System::on_initialize(System::block_number());
+	Session::on_initialize(System::block_number());
+}
+
+pub fn next_session() {
+	END_SESSION.set(true);
+	next_block();
+	assert!(!END_SESSION.get());
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	let keys: Vec<_> = NEXT_VALIDATORS
-		.with(|l| l.borrow().iter().cloned().map(|i| (i, i, UintAuthorityId(i).into())).collect());
-	BasicExternalities::execute_with_storage(&mut t, || {
-		for (ref k, ..) in &keys {
-			frame_system::Pallet::<Test>::inc_providers(k);
-		}
-		frame_system::Pallet::<Test>::inc_providers(&4);
-		frame_system::Pallet::<Test>::inc_providers(&69);
-	});
-	validator_set::GenesisConfig::<Test> {
-		initial_validators: keys.iter().map(|x| x.0).collect::<Vec<_>>(),
+	let validators = vec![1, 2, 3];
+	let keys = validators.iter().map(|who| (*who, *who, (*who).into())).collect();
+	let t = RuntimeGenesisConfig {
+		system: Default::default(),
+		session: SessionConfig { keys },
+		validator_set: ValidatorSetConfig { initial_validators: validators.try_into().unwrap() },
 	}
-	.assimilate_storage(&mut t)
+	.build_storage()
 	.unwrap();
-	pallet_session::GenesisConfig::<Test> { keys: keys.clone() }
-		.assimilate_storage(&mut t)
-		.unwrap();
-	sp_io::TestExternalities::new(t)
-}
-
-parameter_types! {
-	pub const BlockHashCount: u64 = 250;
-	pub BlockWeights: frame_system::limits::BlockWeights =
-		frame_system::limits::BlockWeights::simple_max(frame_support::weights::Weight::from_parts(1024, 0));
+	t.into()
 }
 
 impl frame_system::Config for Test {
@@ -175,7 +151,7 @@ impl frame_system::Config for Test {
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Block = Block;
 	type RuntimeEvent = RuntimeEvent;
-	type BlockHashCount = BlockHashCount;
+	type BlockHashCount = ConstU64<250>;
 	type Version = ();
 	type PalletInfo = PalletInfo;
 	type AccountData = ();
@@ -184,30 +160,23 @@ impl frame_system::Config for Test {
 	type SystemWeightInfo = ();
 	type SS58Prefix = ();
 	type OnSetCode = ();
-	type MaxConsumers = frame_support::traits::ConstU32<16>;
+	type MaxConsumers = ConstU32<16>;
 }
 
-parameter_types! {
-	pub const MinAuthorities: u32 = 2;
-  pub const MinAuthoritiesOnDisabled: bool = true;
-}
-
-impl validator_set::Config for Test {
-	type AddRemoveOrigin = EnsureRoot<Self::AccountId>;
+impl pallet_validator_set::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
-	type MinAuthorities = MinAuthorities;
-	type OnDisabled = ();
-	type MinAuthoritiesOnDisabled = MinAuthoritiesOnDisabled;
 	type WeightInfo = ();
+	type AddRemoveOrigin = EnsureRoot<Self::AccountId>;
+	type MaxAuthorities = ConstU32<10>;
 }
 
 impl pallet_session::Config for Test {
-	type ValidatorId = <Self as frame_system::Config>::AccountId;
-	type ValidatorIdOf = validator_set::ValidatorOf<Self>;
-	type ShouldEndSession = TestShouldEndSession;
+	type ValidatorId = Self::AccountId;
+	type ValidatorIdOf = ConvertInto;
+	type ShouldEndSession = MockShouldEndSession;
 	type NextSessionRotation = ();
 	type SessionManager = ValidatorSet;
-	type SessionHandler = TestSessionHandler;
+	type SessionHandler = (MockSessionHandler,);
 	type Keys = MockSessionKeys;
 	type WeightInfo = ();
 	type RuntimeEvent = RuntimeEvent;
