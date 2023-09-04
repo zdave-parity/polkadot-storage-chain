@@ -22,7 +22,17 @@
 //! validators from the set (if they would be slashed) and temporarily disables them according to
 //! the [`DisableStrategy`].
 //!
+//! Adding a validator to the set increments the validator account's provider reference count. This
+//! allows the validator to set their session keys with
+//! [`set_keys`](pallet_session::Pallet::set_keys). When a validator is removed, either explicitly
+//! via [`remove_validator`](Pallet::remove_validator) or implicitly due to an offence, the
+//! validator's session keys are automatically purged and the validator account's provider
+//! reference count is decremented again. Note that failure to decrement the provider reference
+//! count does not cause removal to fail; the provider reference is just leaked.
+//!
 //! This pallet directly depends on [`pallet_session`] and [`pallet_session::historical`].
+//! [`pallet_session::Config::ValidatorId`] must be [`AccountId`](frame_system::Config::AccountId)
+//! and [`pallet_session::Config::ValidatorIdOf`] must be [`ConvertInto`].
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -32,16 +42,24 @@ mod tests;
 pub mod weights;
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::{ensure, pallet_prelude::Weight, traits::Get, DefaultNoBound};
+use frame_support::{
+	dispatch::RawOrigin,
+	ensure,
+	pallet_prelude::{DispatchResult, Weight},
+	traits::Get,
+	DefaultNoBound,
+};
 pub use pallet::*;
 use pallet_session::SessionManager;
-use sp_runtime::Perbill;
+use sp_runtime::{traits::ConvertInto, Perbill};
 use sp_staking::{
 	offence::{DisableStrategy, OffenceDetails, OnOffenceHandler},
 	SessionIndex,
 };
 use sp_std::vec::Vec;
 pub use weights::WeightInfo;
+
+const LOG_TARGET: &str = "runtime::validator-set";
 
 /// Per-validator data stored by this pallet.
 #[derive(Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
@@ -54,7 +72,13 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_session::Config {
+	pub trait Config:
+		frame_system::Config
+		+ pallet_session::Config<
+			ValidatorId = <Self as frame_system::Config>::AccountId,
+			ValidatorIdOf = ConvertInto,
+		>
+	{
 		/// The overarching event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -75,7 +99,7 @@ pub mod pallet {
 	/// Validator set. Changes to this will take effect in the session after next.
 	#[pallet::storage]
 	pub(super) type Validators<T: Config> =
-		StorageMap<_, Blake2_128Concat, T::ValidatorId, Validator, OptionQuery>;
+		StorageMap<_, Blake2_128Concat, T::AccountId, Validator, OptionQuery>;
 
 	/// Number of validators in `Validators`.
 	#[pallet::storage]
@@ -90,15 +114,15 @@ pub mod pallet {
 	/// enabled.
 	#[pallet::storage]
 	pub(super) type NextDisabledValidators<T: Config> =
-		StorageMap<_, Blake2_128Concat, T::ValidatorId, (), OptionQuery>;
+		StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// New validator added. Effective in session after next.
-		ValidatorAdded(T::ValidatorId),
+		ValidatorAdded(T::AccountId),
 		/// Validator removed. Effective in session after next.
-		ValidatorRemoved(T::ValidatorId),
+		ValidatorRemoved(T::AccountId),
 	}
 
 	#[pallet::error]
@@ -114,7 +138,7 @@ pub mod pallet {
 	#[pallet::genesis_config]
 	#[derive(DefaultNoBound)]
 	pub struct GenesisConfig<T: Config> {
-		pub initial_validators: BoundedVec<T::ValidatorId, T::MaxAuthorities>,
+		pub initial_validators: BoundedVec<T::AccountId, T::MaxAuthorities>,
 	}
 
 	#[pallet::genesis_build]
@@ -122,16 +146,9 @@ pub mod pallet {
 		fn build(&self) {
 			assert!(Validators::<T>::iter().next().is_none(), "Validators are already initialized");
 			assert_eq!(NumValidators::<T>::get(), 0);
-			for validator_id in &self.initial_validators {
-				Validators::<T>::mutate(validator_id, |validator| {
-					assert!(
-						validator.is_none(),
-						"Validator appears twice in initial set of validators"
-					);
-					*validator = Some(Validator);
-				});
+			for who in &self.initial_validators {
+				assert!(Pallet::<T>::do_add_validator(who).is_ok());
 			}
-			NumValidators::<T>::put(self.initial_validators.len() as u32);
 		}
 	}
 
@@ -139,35 +156,27 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Add a new validator.
 		///
-		/// The addition will take effect the session after next.
+		/// This will increment the validator's provider reference count, allowing the validator to
+		/// call [`set_keys`](pallet_session::Pallet::set_keys).
+		///
+		/// Provided the validator calls `set_keys` in time, the addition will take effect the
+		/// session after next.
 		///
 		/// The origin for this call must be the pallet's `AddRemoveOrigin`. Emits
 		/// [`ValidatorAdded`](Event::ValidatorAdded) when successful.
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::add_validator())]
-		pub fn add_validator(origin: OriginFor<T>, validator_id: T::ValidatorId) -> DispatchResult {
+		pub fn add_validator(origin: OriginFor<T>, who: T::AccountId) -> DispatchResult {
 			T::AddRemoveOrigin::ensure_origin(origin)?;
-
-			Validators::<T>::mutate(&validator_id, |validator| {
-				if !validator.is_none() {
-					return Err(Error::<T>::Duplicate)
-				}
-				*validator = Some(Validator);
-				Ok(())
-			})?;
-			NumValidators::<T>::mutate(|num| {
-				if *num >= T::MaxAuthorities::get() {
-					return Err(Error::<T>::TooManyValidators)
-				}
-				*num += 1;
-				Ok(())
-			})?;
-
-			Self::deposit_event(Event::ValidatorAdded(validator_id));
+			Self::do_add_validator(&who)?;
+			Self::deposit_event(Event::ValidatorAdded(who));
 			Ok(())
 		}
 
 		/// Remove a validator.
+		///
+		/// This will purge the validator's session keys and decrement the validator's provider
+		/// reference count.
 		///
 		/// The removal will take effect the session after next.
 		///
@@ -175,31 +184,83 @@ pub mod pallet {
 		/// [`ValidatorRemoved`](Event::ValidatorRemoved) when successful.
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as Config>::WeightInfo::remove_validator())]
-		pub fn remove_validator(
-			origin: OriginFor<T>,
-			validator_id: T::ValidatorId,
-		) -> DispatchResult {
+		pub fn remove_validator(origin: OriginFor<T>, who: T::AccountId) -> DispatchResult {
 			T::AddRemoveOrigin::ensure_origin(origin)?;
-
-			ensure!(Validators::<T>::take(&validator_id).is_some(), Error::<T>::NotAValidator);
-			NumValidators::<T>::mutate(|num| *num -= 1);
-
-			Self::deposit_event(Event::ValidatorRemoved(validator_id));
+			ensure!(Self::do_remove_validator(&who), Error::<T>::NotAValidator);
+			Self::deposit_event(Event::ValidatorRemoved(who));
 			Ok(())
 		}
 	}
 }
 
-impl<T: Config> SessionManager<T::ValidatorId> for Pallet<T> {
-	fn new_session(_new_index: SessionIndex) -> Option<Vec<T::ValidatorId>> {
-		Some(Validators::<T>::iter_keys().collect())
+impl<T: Config> Pallet<T> {
+	pub fn validators() -> Vec<T::AccountId> {
+		Validators::<T>::iter_keys().collect()
+	}
+
+	fn do_add_validator(who: &T::AccountId) -> DispatchResult {
+		NumValidators::<T>::mutate(|num| {
+			if *num >= T::MaxAuthorities::get() {
+				return Err(Error::<T>::TooManyValidators)
+			}
+
+			Validators::<T>::mutate(who, |validator| {
+				if !validator.is_none() {
+					return Err(Error::<T>::Duplicate)
+				}
+				*validator = Some(Validator);
+				Ok(())
+			})?;
+
+			*num += 1;
+			Ok(())
+		})?;
+
+		frame_system::Pallet::<T>::inc_providers(who);
+
+		Ok(())
+	}
+
+	/// Returns `false` if `who` is not a validator.
+	fn do_remove_validator(who: &T::AccountId) -> bool {
+		if Validators::<T>::take(who).is_none() {
+			return false
+		}
+		NumValidators::<T>::mutate(|num| *num -= 1);
+
+		// Decrement who's provider reference count. Purge who's session keys first as
+		// dec_providers will fail if there are any consumers.
+		if let Err(err) =
+			pallet_session::Pallet::<T>::purge_keys(RawOrigin::Signed(who.clone()).into())
+		{
+			log::trace!(
+				target: LOG_TARGET,
+				"Failed to purge session keys for validator {:?}: {:?}", who, err
+			);
+		}
+		if let Err(err) = frame_system::Pallet::<T>::dec_providers(who) {
+			log::warn!(
+				target: LOG_TARGET,
+				"Failed to decrement provider reference count for validator {:?}, \
+				leaking reference: {:?}",
+				who, err
+			);
+		}
+
+		true
+	}
+}
+
+impl<T: Config> SessionManager<T::AccountId> for Pallet<T> {
+	fn new_session(_new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
+		Some(Self::validators())
 	}
 
 	fn end_session(_end_index: SessionIndex) {}
 
 	fn start_session(_start_index: SessionIndex) {
-		for (validator_id, _) in NextDisabledValidators::<T>::drain() {
-			pallet_session::Pallet::<T>::disable(&validator_id);
+		for (who, _) in NextDisabledValidators::<T>::drain() {
+			pallet_session::Pallet::<T>::disable(&who);
 		}
 	}
 }
@@ -234,10 +295,9 @@ where
 			if remove {
 				// Note that the validator might already have been removed (explicitly, for another
 				// offence, or even by an earlier report of this offence)
-				weight.saturating_accrue(db_weight.reads_writes(1, 1));
-				if Validators::<T>::take(&offender.offender.0).is_some() {
-					weight.saturating_accrue(db_weight.reads_writes(1, 1));
-					NumValidators::<T>::mutate(|num| *num -= 1);
+				weight.saturating_accrue(db_weight.reads(1));
+				if Self::do_remove_validator(&offender.offender.0) {
+					weight.saturating_accrue(db_weight.reads_writes(1, 2));
 				}
 			}
 
