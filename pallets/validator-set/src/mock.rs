@@ -181,3 +181,8 @@ impl pallet_session::Config for Test {
 	type WeightInfo = ();
 	type RuntimeEvent = RuntimeEvent;
 }
+
+impl pallet_session::historical::Config for Test {
+	type FullIdentification = Self::ValidatorId;
+	type FullIdentificationOf = Self::ValidatorIdOf;
+}

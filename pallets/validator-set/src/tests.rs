@@ -22,8 +22,12 @@ use super::mock::{
 	active_validators, new_test_ext, next_session, AccountId, RuntimeOrigin, Session, System, Test,
 	ValidatorSet,
 };
-use frame_support::{assert_noop, assert_ok, traits::ValidatorRegistration};
-use sp_runtime::{traits::Zero, DispatchError};
+use frame_support::{
+	assert_noop, assert_ok,
+	traits::{DisabledValidators, ValidatorRegistration},
+};
+use sp_runtime::{traits::Zero, DispatchError, Perbill};
+use sp_staking::offence::{DisableStrategy, OffenceDetails, OnOffenceHandler};
 use std::collections::HashSet;
 
 type Error = super::Error<Test>;
@@ -130,5 +134,33 @@ fn remove_purges_keys_and_decs_providers() {
 		assert_ok!(ValidatorSet::remove_validator(RuntimeOrigin::root(), 3));
 		assert!(!Session::is_registered(&3));
 		assert!(System::providers(&3).is_zero());
+	});
+}
+
+#[test]
+fn offender_disabled_and_removed() {
+	new_test_ext().execute_with(|| {
+		assert_eq!(validators(), HashSet::from([1, 2, 3]));
+		ValidatorSet::on_offence(
+			&[OffenceDetails { offender: (3, 3), reporters: vec![] }],
+			&[Perbill::from_rational(1u32, 2u32)],
+			0,
+			DisableStrategy::WhenSlashed,
+		);
+		assert_eq!(validators(), HashSet::from([1, 2]));
+
+		// The offender should be disabled for the rest of this session and the next session. The
+		// removal should take effect by the session after next.
+		assert_eq!(active_validators(), HashSet::from([1, 2, 3]));
+		assert!(Session::is_disabled(
+			Session::validators().iter().position(|who| *who == 3).unwrap() as u32
+		));
+		next_session();
+		assert_eq!(active_validators(), HashSet::from([1, 2, 3]));
+		assert!(Session::is_disabled(
+			Session::validators().iter().position(|who| *who == 3).unwrap() as u32
+		));
+		next_session();
+		assert_eq!(active_validators(), HashSet::from([1, 2]));
 	});
 }
