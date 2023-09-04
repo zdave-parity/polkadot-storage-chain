@@ -19,13 +19,14 @@
 #![cfg(test)]
 
 use super::mock::{
-	new_test_ext, next_session, AccountId, RuntimeOrigin, Session, System, Test, ValidatorSet,
+	new_test_ext, next_block, next_session, AccountId, RuntimeOrigin, Session, System, Test,
+	ValidatorSet,
 };
 use frame_support::{
 	assert_noop, assert_ok,
 	traits::{DisabledValidators, ValidatorRegistration},
 };
-use sp_runtime::{traits::Zero, DispatchError, Perbill};
+use sp_runtime::{traits::Zero, transaction_validity::InvalidTransaction, DispatchError, Perbill};
 use sp_staking::offence::{DisableStrategy, OffenceDetails, OnOffenceHandler};
 use std::collections::HashSet;
 
@@ -165,5 +166,25 @@ fn offender_disabled_and_removed() {
 		));
 		next_session();
 		assert_eq!(active_validators(), HashSet::from([1, 2]));
+	});
+}
+
+#[test]
+fn non_validator_cant_set_keys() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(ValidatorSet::validate_set_keys(&4), InvalidTransaction::BadSigner);
+		assert_noop!(ValidatorSet::pre_dispatch_set_keys(&4), InvalidTransaction::BadSigner);
+	});
+}
+
+#[test]
+fn set_keys_has_cooldown() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(ValidatorSet::pre_dispatch_set_keys(&3));
+		assert_noop!(ValidatorSet::pre_dispatch_set_keys(&3), InvalidTransaction::Future);
+		next_block();
+		assert_noop!(ValidatorSet::pre_dispatch_set_keys(&3), InvalidTransaction::Future);
+		next_block();
+		assert_ok!(ValidatorSet::pre_dispatch_set_keys(&3));
 	});
 }

@@ -19,8 +19,11 @@
 #![cfg(test)]
 
 use crate as pallet_validator_set;
-use frame_support::traits::{ConstU32, ConstU64, OnFinalize, OnInitialize, OneSessionHandler};
-use frame_system::EnsureRoot;
+use frame_support::{
+	parameter_types,
+	traits::{ConstU32, ConstU64, OnFinalize, OnInitialize, OneSessionHandler},
+};
+use frame_system::{pallet_prelude::BlockNumberFor, EnsureRoot};
 use pallet_session::ShouldEndSession;
 use sp_core::H256;
 use sp_runtime::{
@@ -90,7 +93,7 @@ impl<T> ShouldEndSession<T> for MockShouldEndSession {
 	}
 }
 
-fn next_block() {
+pub fn next_block() {
 	System::on_finalize(System::block_number());
 	System::set_block_number(System::block_number() + 1);
 	System::on_initialize(System::block_number());
@@ -142,11 +145,16 @@ impl frame_system::Config for Test {
 	type MaxConsumers = ConstU32<16>;
 }
 
+parameter_types! {
+	pub const SetKeysCooldownBlocks: BlockNumberFor<Test> = 2;
+}
+
 impl pallet_validator_set::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = ();
 	type AddRemoveOrigin = EnsureRoot<Self::AccountId>;
 	type MaxAuthorities = ConstU32<6>;
+	type SetKeysCooldownBlocks = SetKeysCooldownBlocks;
 }
 
 impl pallet_session::Config for Test {

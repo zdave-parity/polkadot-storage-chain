@@ -180,10 +180,14 @@ parameter_types! {
 	pub const AuthorizationPeriod: BlockNumber = 7 * DAYS;
 	pub const StoreRenewPriority: TransactionPriority = RemoveExpiredAuthorizationPriority::get() - 1;
 	pub const StoreRenewLongevity: TransactionLongevity = DAYS as TransactionLongevity;
-	pub const RemoveExpiredAuthorizationPriority: TransactionPriority = SudoPriority::get() - 1;
+	pub const RemoveExpiredAuthorizationPriority: TransactionPriority = SetKeysPriority::get() - 1;
 	pub const RemoveExpiredAuthorizationLongevity: TransactionLongevity = DAYS as TransactionLongevity;
 
 	pub const SudoPriority: TransactionPriority = ImOnlineUnsignedPriority::get() - 1;
+
+	pub const SetKeysCooldownBlocks: BlockNumber = 5 * MINUTES;
+	pub const SetKeysPriority: TransactionPriority = SudoPriority::get() - 1;
+	pub const SetKeysLongevity: TransactionLongevity = HOURS as TransactionLongevity;
 }
 
 // Configure FRAME pallets to include in runtime.
@@ -243,6 +247,7 @@ impl pallet_validator_set::Config for Runtime {
 	type WeightInfo = pallet_validator_set::weights::SubstrateWeight<Runtime>;
 	type AddRemoveOrigin = EnsureRoot<AccountId>;
 	type MaxAuthorities = MaxAuthorities;
+	type SetKeysCooldownBlocks = SetKeysCooldownBlocks;
 }
 
 impl pallet_session::Config for Runtime {
@@ -430,6 +435,8 @@ impl SignedExtension for ValidateSigned {
 			Self::Call::TransactionStorage(call) =>
 				TransactionStorage::pre_dispatch_signed(who, call),
 			Self::Call::Sudo(_) => validate_sudo(who).map(|_| ()),
+			Self::Call::Session(pallet_session::Call::<Runtime>::set_keys { .. }) =>
+				ValidatorSet::pre_dispatch_set_keys(who),
 			_ => Err(InvalidTransaction::Call.into()),
 		}
 	}
@@ -444,6 +451,12 @@ impl SignedExtension for ValidateSigned {
 		match call {
 			Self::Call::TransactionStorage(call) => TransactionStorage::validate_signed(who, call),
 			Self::Call::Sudo(_) => validate_sudo(who),
+			Self::Call::Session(pallet_session::Call::<Runtime>::set_keys { .. }) =>
+				ValidatorSet::validate_set_keys(who).map(|_| ValidTransaction {
+					priority: SetKeysPriority::get(),
+					longevity: SetKeysLongevity::get(),
+					..Default::default()
+				}),
 			_ => Err(InvalidTransaction::Call.into()),
 		}
 	}

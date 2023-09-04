@@ -49,9 +49,14 @@ use frame_support::{
 	traits::Get,
 	DefaultNoBound,
 };
+use frame_system::pallet_prelude::BlockNumberFor;
 pub use pallet::*;
 use pallet_session::SessionManager;
-use sp_runtime::{traits::ConvertInto, Perbill};
+use sp_runtime::{
+	traits::{ConvertInto, Zero},
+	transaction_validity::{InvalidTransaction, TransactionValidityError},
+	Perbill, Saturating,
+};
 use sp_staking::{
 	offence::{DisableStrategy, OffenceDetails, OnOffenceHandler},
 	SessionIndex,
@@ -63,7 +68,10 @@ const LOG_TARGET: &str = "runtime::validator-set";
 
 /// Per-validator data stored by this pallet.
 #[derive(Encode, Decode, scale_info::TypeInfo, MaxEncodedLen)]
-struct Validator;
+struct Validator<BlockNumber> {
+	/// The validator may not set its session keys before this block.
+	min_set_keys_block: BlockNumber,
+}
 
 #[frame_support::pallet()]
 pub mod pallet {
@@ -91,6 +99,11 @@ pub mod pallet {
 		/// Maximum number of validators.
 		#[pallet::constant]
 		type MaxAuthorities: Get<u32>;
+
+		/// Minimum number of blocks between [`set_keys`](pallet_session::Pallet::set_keys) calls
+		/// by a validator.
+		#[pallet::constant]
+		type SetKeysCooldownBlocks: Get<BlockNumberFor<Self>>;
 	}
 
 	#[pallet::pallet]
@@ -99,7 +112,7 @@ pub mod pallet {
 	/// Validator set. Changes to this will take effect in the session after next.
 	#[pallet::storage]
 	pub(super) type Validators<T: Config> =
-		StorageMap<_, Blake2_128Concat, T::AccountId, Validator, OptionQuery>;
+		StorageMap<_, Blake2_128Concat, T::AccountId, Validator<BlockNumberFor<T>>, OptionQuery>;
 
 	/// Number of validators in `Validators`.
 	#[pallet::storage]
@@ -208,7 +221,7 @@ impl<T: Config> Pallet<T> {
 				if !validator.is_none() {
 					return Err(Error::<T>::Duplicate)
 				}
-				*validator = Some(Validator);
+				*validator = Some(Validator { min_set_keys_block: Zero::zero() });
 				Ok(())
 			})?;
 
@@ -248,6 +261,38 @@ impl<T: Config> Pallet<T> {
 		}
 
 		true
+	}
+
+	fn check_min_set_keys_block(
+		validator: &Validator<BlockNumberFor<T>>,
+	) -> Result<(), TransactionValidityError> {
+		if frame_system::Pallet::<T>::block_number() < validator.min_set_keys_block {
+			Err(InvalidTransaction::Future.into())
+		} else {
+			Ok(())
+		}
+	}
+
+	/// Check the validity of a [`set_keys`](pallet_session::Pallet::set_keys) call by `who`.
+	pub fn validate_set_keys(who: &T::AccountId) -> Result<(), TransactionValidityError> {
+		match Validators::<T>::get(who) {
+			Some(validator) => Self::check_min_set_keys_block(&validator),
+			None => Err(InvalidTransaction::BadSigner.into()),
+		}
+	}
+
+	/// Check the validity of a [`set_keys`](pallet_session::Pallet::set_keys) call by `who`, and,
+	/// if valid, note the call.
+	pub fn pre_dispatch_set_keys(who: &T::AccountId) -> Result<(), TransactionValidityError> {
+		Validators::<T>::mutate(who, |validator| match validator {
+			Some(validator) => {
+				Self::check_min_set_keys_block(validator)?;
+				validator.min_set_keys_block = frame_system::Pallet::<T>::block_number()
+					.saturating_add(T::SetKeysCooldownBlocks::get());
+				Ok(())
+			},
+			None => Err(InvalidTransaction::BadSigner.into()),
+		})
 	}
 }
 
