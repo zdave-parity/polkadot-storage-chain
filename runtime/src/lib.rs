@@ -176,17 +176,12 @@ parameter_types! {
 	pub const ImOnlineUnsignedPriority: TransactionPriority = TransactionPriority::max_value();
 
 	// This currently _must_ be set to DEFAULT_STORAGE_PERIOD
-	pub const TransactionStorageStoragePeriod: BlockNumber =
-		sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD;
-	pub const TransactionStorageAuthorizationPeriod: BlockNumber = 7 * DAYS;
-	pub const TransactionStorageStoreRenewPriority: TransactionPriority =
-		TransactionStorageRemoveExpiredAuthorizationPriority::get() - 1;
-	pub const TransactionStorageStoreRenewLongevity: TransactionLongevity =
-		DAYS as TransactionLongevity;
-	pub const TransactionStorageRemoveExpiredAuthorizationPriority: TransactionPriority =
-		SudoPriority::get() - 1;
-	pub const TransactionStorageRemoveExpiredAuthorizationLongevity: TransactionLongevity =
-		DAYS as TransactionLongevity;
+	pub const StoragePeriod: BlockNumber = sp_transaction_storage_proof::DEFAULT_STORAGE_PERIOD;
+	pub const AuthorizationPeriod: BlockNumber = 7 * DAYS;
+	pub const StoreRenewPriority: TransactionPriority = RemoveExpiredAuthorizationPriority::get() - 1;
+	pub const StoreRenewLongevity: TransactionLongevity = DAYS as TransactionLongevity;
+	pub const RemoveExpiredAuthorizationPriority: TransactionPriority = SudoPriority::get() - 1;
+	pub const RemoveExpiredAuthorizationLongevity: TransactionLongevity = DAYS as TransactionLongevity;
 
 	pub const SudoPriority: TransactionPriority = ImOnlineUnsignedPriority::get() - 1;
 }
@@ -342,14 +337,13 @@ impl pallet_transaction_storage::Config for Runtime {
 	type WeightInfo = pallet_transaction_storage::weights::SubstrateWeight<Runtime>;
 	type MaxBlockTransactions = ConstU32<512>;
 	type MaxTransactionSize = ConstU32<{ 8 * 1024 * 1024 }>;
-	type StoragePeriod = TransactionStorageStoragePeriod;
-	type AuthorizationPeriod = TransactionStorageAuthorizationPeriod;
+	type StoragePeriod = StoragePeriod;
+	type AuthorizationPeriod = AuthorizationPeriod;
 	type Authorizer = EnsureRoot<Self::AccountId>;
-	type StoreRenewPriority = TransactionStorageStoreRenewPriority;
-	type StoreRenewLongevity = TransactionStorageStoreRenewLongevity;
-	type RemoveExpiredAuthorizationPriority = TransactionStorageRemoveExpiredAuthorizationPriority;
-	type RemoveExpiredAuthorizationLongevity =
-		TransactionStorageRemoveExpiredAuthorizationLongevity;
+	type StoreRenewPriority = StoreRenewPriority;
+	type StoreRenewLongevity = StoreRenewLongevity;
+	type RemoveExpiredAuthorizationPriority = RemoveExpiredAuthorizationPriority;
+	type RemoveExpiredAuthorizationLongevity = RemoveExpiredAuthorizationLongevity;
 }
 
 impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime

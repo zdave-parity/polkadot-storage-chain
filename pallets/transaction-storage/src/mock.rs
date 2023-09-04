@@ -71,14 +71,12 @@ impl frame_system::Config for Test {
 }
 
 parameter_types! {
-	pub const TransactionStorageStoragePeriod: BlockNumberFor<Test> = 10;
-	pub const TransactionStorageAuthorizationPeriod: BlockNumberFor<Test> = 10;
-	pub const TransactionStorageStoreRenewPriority: TransactionPriority =
-		TransactionPriority::max_value();
-	pub const TransactionStorageStoreRenewLongevity: TransactionLongevity = 10;
-	pub const TransactionStorageRemoveExpiredAuthorizationPriority: TransactionPriority =
-		TransactionPriority::max_value();
-	pub const TransactionStorageRemoveExpiredAuthorizationLongevity: TransactionLongevity = 10;
+	pub const StoragePeriod: BlockNumberFor<Test> = 10;
+	pub const AuthorizationPeriod: BlockNumberFor<Test> = 10;
+	pub const StoreRenewPriority: TransactionPriority = TransactionPriority::max_value();
+	pub const StoreRenewLongevity: TransactionLongevity = 10;
+	pub const RemoveExpiredAuthorizationPriority: TransactionPriority = TransactionPriority::max_value();
+	pub const RemoveExpiredAuthorizationLongevity: TransactionLongevity = 10;
 }
 
 impl pallet_transaction_storage::Config for Test {
@@ -86,14 +84,13 @@ impl pallet_transaction_storage::Config for Test {
 	type WeightInfo = ();
 	type MaxBlockTransactions = ConstU32<{ DEFAULT_MAX_BLOCK_TRANSACTIONS }>;
 	type MaxTransactionSize = ConstU32<{ DEFAULT_MAX_TRANSACTION_SIZE }>;
-	type StoragePeriod = TransactionStorageStoragePeriod;
-	type AuthorizationPeriod = TransactionStorageAuthorizationPeriod;
+	type StoragePeriod = StoragePeriod;
+	type AuthorizationPeriod = AuthorizationPeriod;
 	type Authorizer = EnsureRoot<Self::AccountId>;
-	type StoreRenewPriority = TransactionStorageStoreRenewPriority;
-	type StoreRenewLongevity = TransactionStorageStoreRenewLongevity;
-	type RemoveExpiredAuthorizationPriority = TransactionStorageRemoveExpiredAuthorizationPriority;
-	type RemoveExpiredAuthorizationLongevity =
-		TransactionStorageRemoveExpiredAuthorizationLongevity;
+	type StoreRenewPriority = StoreRenewPriority;
+	type StoreRenewLongevity = StoreRenewLongevity;
+	type RemoveExpiredAuthorizationPriority = RemoveExpiredAuthorizationPriority;
+	type RemoveExpiredAuthorizationLongevity = RemoveExpiredAuthorizationLongevity;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
