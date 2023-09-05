@@ -6,6 +6,7 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+use frame_support::traits::ValidatorRegistration;
 use frame_system::EnsureRoot;
 use pallet_grandpa::AuthorityId as GrandpaId;
 use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
@@ -180,14 +181,14 @@ parameter_types! {
 	pub const AuthorizationPeriod: BlockNumber = 7 * DAYS;
 	pub const StoreRenewPriority: TransactionPriority = RemoveExpiredAuthorizationPriority::get() - 1;
 	pub const StoreRenewLongevity: TransactionLongevity = DAYS as TransactionLongevity;
-	pub const RemoveExpiredAuthorizationPriority: TransactionPriority = SetKeysPriority::get() - 1;
+	pub const RemoveExpiredAuthorizationPriority: TransactionPriority = SetPurgeKeysPriority::get() - 1;
 	pub const RemoveExpiredAuthorizationLongevity: TransactionLongevity = DAYS as TransactionLongevity;
 
 	pub const SudoPriority: TransactionPriority = ImOnlineUnsignedPriority::get() - 1;
 
 	pub const SetKeysCooldownBlocks: BlockNumber = 5 * MINUTES;
-	pub const SetKeysPriority: TransactionPriority = SudoPriority::get() - 1;
-	pub const SetKeysLongevity: TransactionLongevity = HOURS as TransactionLongevity;
+	pub const SetPurgeKeysPriority: TransactionPriority = SudoPriority::get() - 1;
+	pub const SetPurgeKeysLongevity: TransactionLongevity = HOURS as TransactionLongevity;
 }
 
 // Configure FRAME pallets to include in runtime.
@@ -396,6 +397,19 @@ fn validate_sudo(who: &AccountId) -> TransactionValidity {
 	}
 }
 
+fn validate_purge_keys(who: &AccountId) -> TransactionValidity {
+	// Only allow if account has keys to purge
+	if Session::is_registered(who) {
+		Ok(ValidTransaction {
+			priority: SetPurgeKeysPriority::get(),
+			longevity: SetPurgeKeysLongevity::get(),
+			..Default::default()
+		})
+	} else {
+		Err(InvalidTransaction::BadSigner.into())
+	}
+}
+
 /// `ValidateUnsigned` equivalent for signed transactions.
 ///
 /// This chain has no transaction fees, so we require checks equivalent to those performed by
@@ -437,6 +451,8 @@ impl SignedExtension for ValidateSigned {
 			Self::Call::Sudo(_) => validate_sudo(who).map(|_| ()),
 			Self::Call::Session(pallet_session::Call::<Runtime>::set_keys { .. }) =>
 				ValidatorSet::pre_dispatch_set_keys(who),
+			Self::Call::Session(pallet_session::Call::<Runtime>::purge_keys {}) =>
+				validate_purge_keys(who).map(|_| ()),
 			_ => Err(InvalidTransaction::Call.into()),
 		}
 	}
@@ -453,10 +469,12 @@ impl SignedExtension for ValidateSigned {
 			Self::Call::Sudo(_) => validate_sudo(who),
 			Self::Call::Session(pallet_session::Call::<Runtime>::set_keys { .. }) =>
 				ValidatorSet::validate_set_keys(who).map(|_| ValidTransaction {
-					priority: SetKeysPriority::get(),
-					longevity: SetKeysLongevity::get(),
+					priority: SetPurgeKeysPriority::get(),
+					longevity: SetPurgeKeysLongevity::get(),
 					..Default::default()
 				}),
+			Self::Call::Session(pallet_session::Call::<Runtime>::purge_keys {}) =>
+				validate_purge_keys(who),
 			_ => Err(InvalidTransaction::Call.into()),
 		}
 	}
