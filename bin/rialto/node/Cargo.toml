@@ -1,0 +1,50 @@
+[package]
+name = "rialto-bridge-node"
+description = "Substrate node compatible with Rialto runtime"
+version = "0.1.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+edition = "2021"
+build = "build.rs"
+repository = "https://github.com/paritytech/parity-bridges-common/"
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+
+[dependencies]
+clap = { version = "4.3.23", features = ["derive"] }
+serde_json = "1.0.105"
+
+# Bridge dependencies
+
+rialto-runtime = { path = "../runtime" }
+
+# Substrate Dependencies
+
+sp-consensus-beefy = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+frame-benchmarking = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+frame-benchmarking-cli = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+frame-support = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+node-inspect = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+sc-cli = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0"}
+sc-executor = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+sc-service = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+sp-authority-discovery = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+sp-consensus-babe = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+sp-consensus-grandpa = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+
+# Polkadot Dependencies
+polkadot-node-core-pvf = { git = "https://github.com/paritytech/polkadot", branch = "release-v1.0.0" }
+polkadot-primitives = { git = "https://github.com/paritytech/polkadot", branch = "release-v1.0.0" }
+polkadot-runtime-parachains = { git = "https://github.com/paritytech/polkadot", branch = "release-v1.0.0" }
+polkadot-service = { git = "https://github.com/paritytech/polkadot", branch = "release-v1.0.0", default-features = false, features = [ "full-node", "polkadot-native" ] }
+
+[build-dependencies]
+substrate-build-script-utils = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+frame-benchmarking-cli = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v1.0.0" }
+
+[features]
+default = []
+runtime-benchmarks = [
+	"polkadot-service/runtime-benchmarks",
+	"rialto-runtime/runtime-benchmarks",
+]
