@@ -28,7 +28,7 @@ use super::{
 use frame_support::{assert_noop, assert_ok};
 use sp_core::blake2_256;
 use sp_runtime::{
-	traits::{Dispatchable, ValidateUnsigned},
+	traits::{Dispatchable, ValidateUnsigned, Zero},
 	transaction_validity::InvalidTransaction,
 };
 use sp_transaction_storage_proof::registration::build_proof;
@@ -224,11 +224,13 @@ fn expired_authorization_clears() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let who = 1;
+		assert!(System::providers(&who).is_zero());
 		assert_ok!(TransactionStorage::authorize_account(RuntimeOrigin::root(), who, 2, 2000));
 		assert_eq!(
 			TransactionStorage::account_authorization_extent(who),
 			AuthorizationExtent { transactions: 2, bytes: 2000 },
 		);
+		assert!(!System::providers(&who).is_zero());
 
 		// User uses some of the authorization, and the remaining amount gets updated appropriately
 		run_to_block(2, || None);
@@ -251,6 +253,7 @@ fn expired_authorization_clears() {
 		// User has sufficient storage authorization, but it has expired
 		run_to_block(11, || None);
 		assert!(Authorizations::contains_key(AuthorizationScope::Account(who)));
+		assert!(!System::providers(&who).is_zero());
 		// User cannot use authorization
 		assert_noop!(
 			TransactionStorage::pre_dispatch_signed(&who, &store_call),
@@ -264,6 +267,7 @@ fn expired_authorization_clears() {
 		));
 		// No longer in storage
 		assert!(!Authorizations::contains_key(AuthorizationScope::Account(who)));
+		assert!(System::providers(&who).is_zero());
 	});
 }
 
@@ -272,11 +276,13 @@ fn consumed_authorization_clears() {
 	new_test_ext().execute_with(|| {
 		run_to_block(1, || None);
 		let who = 1;
+		assert!(System::providers(&who).is_zero());
 		assert_ok!(TransactionStorage::authorize_account(RuntimeOrigin::root(), who, 2, 2000));
 		assert_eq!(
 			TransactionStorage::account_authorization_extent(who),
 			AuthorizationExtent { transactions: 2, bytes: 2000 },
 		);
+		assert!(!System::providers(&who).is_zero());
 
 		// User uses some of the authorization, and the remaining amount gets updated appropriately
 		let call = Call::store { data: vec![0; 1000] };
@@ -286,9 +292,11 @@ fn consumed_authorization_clears() {
 			TransactionStorage::account_authorization_extent(who),
 			AuthorizationExtent { transactions: 1, bytes: 1000 },
 		);
+		assert!(!System::providers(&who).is_zero());
 		// Consume the remaining amount
 		assert_ok!(TransactionStorage::pre_dispatch_signed(&who, &call));
 		// Key should be cleared from Authorizations
 		assert!(!Authorizations::contains_key(AuthorizationScope::Account(who)));
+		assert!(System::providers(&who).is_zero());
 	});
 }
