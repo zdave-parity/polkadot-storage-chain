@@ -23,11 +23,11 @@ git subtree pull --prefix=bridges bridges polkadot-v.1.0.0-audited --squash
 
 # so, after fetch and before solving conflicts just run patch,
 # this will remove unneeded files and checks if subtree modules compiles
-./brides/scripts/verify-pallets-build.sh --ignore-git-state --no-revert
+./bridges/scripts/verify-pallets-build.sh --ignore-git-state --no-revert
 
 # if there are conflicts, this could help,
 # this removes locally deleted files at least (move changes to git stash for commit)
-git status -s | awk '$1 == "DU" || $1 == "D" || $1 == "MD" || $1 == "AD" {print $2}' | grep "^brides/" | xargs git rm -q --ignore-unmatch
+git status -s | awk '$1 == "DU" || $1 == "D" || $1 == "MD" || $1 == "AD" {print $2}' | grep "^bridges/" | xargs git rm -q --ignore-unmatch
 
 # (optional) when conflicts resolved, you can check build again - should pass
 # also important: this updates global Cargo.lock
