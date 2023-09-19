@@ -37,5 +37,4 @@ git commit --amend -S -m "updating bridges subtree + remove extra folders"
 # so after all conflicts are solved and patch passes and compiles,
 # then we need to finish merge with:
 git merge --continue
-
 ````
