@@ -5570,6 +5570,7 @@ dependencies = [
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
+ "log",
  "pallet-authorship",
  "pallet-babe",
  "pallet-grandpa",
@@ -5596,6 +5597,9 @@ dependencies = [
  "sp-transaction-storage-proof",
  "sp-version",
  "substrate-wasm-builder",
+ "xcm",
+ "xcm-builder",
+ "xcm-executor",
 ]
 
 [[package]]

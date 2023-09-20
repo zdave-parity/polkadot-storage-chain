@@ -50,6 +50,8 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
+mod xcm_config;
+
 /// An index to a block.
 pub type BlockNumber = u32;
 
