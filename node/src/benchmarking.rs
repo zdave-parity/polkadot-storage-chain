@@ -81,6 +81,7 @@ pub fn create_benchmark_extrinsic(
 		frame_system::CheckNonce::<runtime::Runtime>::from(nonce),
 		frame_system::CheckWeight::<runtime::Runtime>::new(),
 		runtime::ValidateSigned,
+		runtime::BridgeRejectObsoleteHeadersAndMessages,
 	);
 
 	let raw_payload = runtime::SignedPayload::from_raw(
@@ -92,6 +93,7 @@ pub fn create_benchmark_extrinsic(
 			runtime::VERSION.transaction_version,
 			genesis_hash,
 			best_hash,
+			(),
 			(),
 			(),
 			(),
