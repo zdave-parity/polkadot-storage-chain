@@ -21,11 +21,11 @@ use crate::{AllPalletsWithSystem, RuntimeCall, RuntimeOrigin};
 use codec::Decode;
 use frame_support::{
 	ensure, match_types, parameter_types,
-	traits::{Contains, Nothing, ProcessMessageError},
+	traits::{Contains, Everything, Nothing, ProcessMessageError},
 	weights::Weight,
 };
 use sp_core::ConstU32;
-use xcm::{latest::prelude::*, DoubleEncoded};
+use xcm::latest::prelude::*;
 use xcm_builder::{CreateMatcher, FixedWeightBounds, MatchXcm, TrailingSetTopicAsId};
 use xcm_executor::{
 	traits::{ConvertOrigin, ShouldExecute, WeightTrader, WithOriginFilter},
@@ -63,13 +63,6 @@ match_types! {
 			GlobalConsensus(Polkadot),
 			Parachain(KAWABUNGA_PARACHAIN_ID),
 		) }
-	};
-
-	// Only passes calls that may be called using XCM transact through the bridge.
-	pub type AllowedXcmTransactCalls: impl Contains<RuntimeCall> = {
-		// TODO [PR or later]: we need to add all supported over-XCM calls here.
-		// what is the set?
-		_
 	};
 }
 
@@ -124,14 +117,11 @@ impl WeightTrader for NoopTrader {
 /// and if it is just a straight `Transact` which contains `AllowedCall`.
 ///
 /// That's a 1:1 copy of corresponding Cumulus structire.
-pub struct AllowUnpaidTransactsFrom<RuntimeCall, AllowedCall, AllowedOrigin>(
-	sp_std::marker::PhantomData<(RuntimeCall, AllowedCall, AllowedOrigin)>,
+pub struct AllowUnpaidTransactsFrom<RuntimeCall, AllowedOrigin>(
+	sp_std::marker::PhantomData<(RuntimeCall, AllowedOrigin)>,
 );
-impl<
-		RuntimeCall: Decode,
-		AllowedCall: Contains<RuntimeCall>,
-		AllowedOrigin: Contains<MultiLocation>,
-	> ShouldExecute for AllowUnpaidTransactsFrom<RuntimeCall, AllowedCall, AllowedOrigin>
+impl<RuntimeCall: Decode, AllowedOrigin: Contains<MultiLocation>> ShouldExecute
+	for AllowUnpaidTransactsFrom<RuntimeCall, AllowedOrigin>
 {
 	fn should_execute<Call>(
 		origin: &MultiLocation,
@@ -153,19 +143,8 @@ impl<
 			.matcher()
 			.assert_remaining_insts(1)?
 			.match_next_inst(|inst| match inst {
-				Transact { origin_kind: OriginKind::Superuser, call: encoded_call, .. } => {
-					// this is a hack - don't know if there's a way to do that properly
-					// or else we can simply allow all calls
-					let mut decoded_call = DoubleEncoded::<RuntimeCall>::from(encoded_call.clone());
-					ensure!(
-						AllowedCall::contains(
-							decoded_call
-								.ensure_decoded()
-								.map_err(|_| ProcessMessageError::BadFormat)?
-						),
-						ProcessMessageError::BadFormat,
-					);
-
+				Transact { origin_kind: OriginKind::Superuser, .. } => {
+					// we allow all calls through the bridge
 					Ok(())
 				},
 				_ => Err(ProcessMessageError::BadFormat),
@@ -191,7 +170,7 @@ pub type XcmRouter = ();
 /// The barriers one of which must be passed for an XCM message to be executed.
 pub type Barrier = TrailingSetTopicAsId<
 	// We only allow unpaid execution from the Kawabunga parachain.
-	AllowUnpaidTransactsFrom<RuntimeCall, AllowedXcmTransactCalls, OnlyKawabungaLocation>,
+	AllowUnpaidTransactsFrom<RuntimeCall, OnlyKawabungaLocation>,
 >;
 
 /// XCM executor configuration.
@@ -221,7 +200,7 @@ impl xcm_executor::Config for XcmConfig {
 	type FeeManager = ();
 	type MessageExporter = ();
 	type UniversalAliases = Nothing;
-	type CallDispatcher = WithOriginFilter<AllowedXcmTransactCalls>;
-	type SafeCallFilter = AllowedXcmTransactCalls;
+	type CallDispatcher = WithOriginFilter<Everything>;
+	type SafeCallFilter = Everything;
 	type Aliasers = Nothing;
 }
