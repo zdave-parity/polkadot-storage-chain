@@ -66,8 +66,6 @@ match_types! {
 	};
 }
 
-// TODO [PR]: what origin we are going to use to dispatch XCM calls over the bridge?
-// right now it is root (root of the Bulletin chain).
 /// Kawabunga location converter to local root.
 pub struct KawabungaParachainAsRoot;
 
