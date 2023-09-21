@@ -85,10 +85,9 @@ impl ConvertOrigin<RuntimeOrigin> for KawabungaParachainAsRoot {
 				OriginKind::Superuser,
 				MultiLocation {
 					parents: 1,
-					interior: X2(GlobalConsensus(remote_network), Parachain(remote_parachain)),
+					interior: X2(GlobalConsensus(Polkadot), Parachain(KAWABUNGA_PARACHAIN_ID)),
 				},
-			) if remote_network == Polkadot && remote_parachain == KAWABUNGA_PARACHAIN_ID =>
-				Ok(RuntimeOrigin::root()),
+			) => Ok(RuntimeOrigin::root()),
 			(_, origin) => Err(origin),
 		}
 	}
