@@ -113,7 +113,7 @@ impl WeightTrader for NoopTrader {
 /// Allows execution from `origin` if it is contained in `AllowedOrigin`
 /// and if it is just a straight `Transact` which contains `AllowedCall`.
 ///
-/// That's a 1:1 copy of corresponding Cumulus structire.
+/// That's a 1:1 copy of corresponding Cumulus structure.
 pub struct AllowUnpaidTransactsFrom<RuntimeCall, AllowedOrigin>(
 	sp_std::marker::PhantomData<(RuntimeCall, AllowedOrigin)>,
 );
