@@ -128,7 +128,7 @@ impl<RuntimeCall: Decode, AllowedOrigin: Contains<MultiLocation>> ShouldExecute
 	) -> Result<(), ProcessMessageError> {
 		log::trace!(
 			target: "xcm::barriers",
-			"AllowUnpaidTransactFrom origin: {:?}, instructions: {:?}, max_weight: {:?}, properties: {:?}",
+			"AllowUnpaidTransactsFrom origin: {:?}, instructions: {:?}, max_weight: {:?}, properties: {:?}",
 			origin, instructions, max_weight, _properties,
 		);
 
