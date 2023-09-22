@@ -211,7 +211,7 @@ impl xcm_executor::Config for XcmConfig {
 	type MaxAssetsIntoHolding = ConstU32<0>;
 	type FeeManager = ();
 	type MessageExporter = ();
-	type UniversalAliases = Nothing;
+	type UniversalAliases = UniversalAliases;
 	type CallDispatcher = WithOriginFilter<Everything>;
 	type SafeCallFilter = Everything;
 	type Aliasers = Nothing;
