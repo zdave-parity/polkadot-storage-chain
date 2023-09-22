@@ -43,7 +43,7 @@ parameter_types! {
 	/// Our location in the universe of consensus systems.
 	pub const UniversalLocation: InteriorMultiLocation = X1(GlobalConsensus(ThisNetwork::get()));
 
-	/// Location of the Kawabunga chain, relative to this runtime.
+	/// Location of the Kawabunga parachain, relative to this runtime.
 	pub KawabungaLocation: MultiLocation = MultiLocation::new(1, X2(
 		GlobalConsensus(Polkadot),
 		Parachain(KAWABUNGA_PARACHAIN_ID),
