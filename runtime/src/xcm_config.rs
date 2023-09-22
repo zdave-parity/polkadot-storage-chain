@@ -248,7 +248,7 @@ mod tests {
 		// ensure that it passes local XCM Barrier
 		assert_eq!(
 			Barrier::should_execute(
-				&MultiLocation::new(1, bridge_hub_universal_location),
+				&Here.into(),
 				xcm.inner_mut(),
 				Weight::MAX,
 				&mut Properties { weight_credit: Weight::MAX, message_id: None },
