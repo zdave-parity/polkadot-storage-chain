@@ -26,7 +26,9 @@ use frame_support::{
 };
 use sp_core::ConstU32;
 use xcm::latest::prelude::*;
-use xcm_builder::{CreateMatcher, FixedWeightBounds, MatchXcm, TrailingSetTopicAsId};
+use xcm_builder::{
+	CreateMatcher, FixedWeightBounds, MatchXcm, TrailingSetTopicAsId, WithComputedOrigin,
+};
 use xcm_executor::{
 	traits::{ConvertOrigin, ShouldExecute, WeightTrader, WithOriginFilter},
 	Assets,
@@ -63,6 +65,14 @@ match_types! {
 			GlobalConsensus(Polkadot),
 			Parachain(KAWABUNGA_PARACHAIN_ID),
 		) }
+	};
+
+	// Supported universal aliases.
+	pub type UniversalAliases: impl Contains<(MultiLocation, Junction)> = {
+		(
+			MultiLocation { parents: 0, interior: Here },
+			GlobalConsensus(Polkadot),
+		)
 	};
 }
 
@@ -166,8 +176,12 @@ pub type XcmRouter = ();
 
 /// The barriers one of which must be passed for an XCM message to be executed.
 pub type Barrier = TrailingSetTopicAsId<
-	// We only allow unpaid execution from the Kawabunga parachain.
-	AllowUnpaidTransactsFrom<RuntimeCall, OnlyKawabungaLocation>,
+	WithComputedOrigin<
+		// We only allow unpaid execution from the Kawabunga parachain.
+		AllowUnpaidTransactsFrom<RuntimeCall, OnlyKawabungaLocation>,
+		UniversalLocation,
+		ConstU32<2>,
+	>,
 >;
 
 /// XCM executor configuration.
@@ -200,4 +214,45 @@ impl xcm_executor::Config for XcmConfig {
 	type CallDispatcher = WithOriginFilter<Everything>;
 	type SafeCallFilter = Everything;
 	type Aliasers = Nothing;
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use codec::Encode;
+	use xcm_executor::traits::Properties;
+
+	#[test]
+	fn expected_message_from_kawabunga_passes_barrier() {
+		// prepare message that we expect to come from the Polkadot BH
+		// (everything is relative to Polkadot BH)
+		let bridge_hub_universal_location = X2(GlobalConsensus(Polkadot), Parachain(1002));
+		let kawabunga_origin = MultiLocation::new(1, Parachain(KAWABUNGA_PARACHAIN_ID));
+		let universal_source =
+			bridge_hub_universal_location.within_global(kawabunga_origin).unwrap();
+		let (local_net, local_sub) = universal_source.split_global().unwrap();
+		let mut xcm: Xcm<RuntimeCall> = vec![
+			UniversalOrigin(GlobalConsensus(local_net)),
+			DescendOrigin(local_sub),
+			Transact {
+				origin_kind: OriginKind::Superuser,
+				require_weight_at_most: Weight::MAX,
+				call: RuntimeCall::System(frame_system::Call::remark { remark: vec![42] })
+					.encode()
+					.into(),
+			},
+		]
+		.into();
+
+		// ensure that it passes local XCM Barrier
+		assert_eq!(
+			Barrier::should_execute(
+				&MultiLocation::new(1, bridge_hub_universal_location),
+				xcm.inner_mut(),
+				Weight::MAX,
+				&mut Properties { weight_credit: Weight::MAX, message_id: None },
+			),
+			Ok(())
+		);
+	}
 }
