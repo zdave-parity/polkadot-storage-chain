@@ -34,11 +34,12 @@ use xcm_executor::{
 	Assets,
 };
 
+// TODO [bridge]: change to actual value here + everywhere where Kawabunga is mentioned
 /// Id of the Polkadot parachain that we are going to bridge with.
 const KAWABUNGA_PARACHAIN_ID: u32 = 42;
 
 parameter_types! {
-	// TODO [PR]: how we are supposed to set it? Named? ByGenesis - if so, when? After generating
+	// TODO [bridge]: how we are supposed to set it? Named? ByGenesis - if so, when? After generating
 	// chain spec?
 	/// The Polkadot Bulletin Chain network ID.
 	pub const ThisNetwork: NetworkId = NetworkId::ByGenesis([42u8; 32]);
@@ -196,7 +197,7 @@ impl xcm_executor::Config for XcmConfig {
 	type IsTeleporter = ();
 	type UniversalLocation = UniversalLocation;
 	type Barrier = Barrier;
-	// TODO [PR]: is it ok to use `FixedWeightBounds` here? We don't have the `pallet-xcm`
+	// TODO [bridge]: is it ok to use `FixedWeightBounds` here? We don't have the `pallet-xcm`
 	// and IIUC can't use XCM benchmarks because of that?
 	type Weigher = FixedWeightBounds<BaseXcmWeight, RuntimeCall, MaxInstructions>;
 	type Trader = NoopTrader;
