@@ -67,9 +67,6 @@ parameter_types! {
 		Here.into(),
 		XCM_LANE,
 	);
-
-	/// XCM message that is never sent to anyone.
-	pub NeverSentMessage: Option<Xcm<()>> = None;
 }
 
 /// An instance of `pallet_bridge_grandpa` used to bridge with Polkadot.
