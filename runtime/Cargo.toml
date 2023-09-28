@@ -13,6 +13,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false, features = ["derive"] }
+log = { version = "0.4", default-features = false }
 scale-info = { version = "2.5.0", default-features = false, features = ["derive"] }
 
 frame-executive = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
@@ -52,6 +53,11 @@ frame-system-benchmarking = { version = "4.0.0-dev", default-features = false, g
 pallet-transaction-storage = { version = "4.0.0-dev", default-features = false, path = "../pallets/transaction-storage" }
 pallet-validator-set = { version = "1.0.0", default-features = false, path = "../pallets/validator-set" }
 
+# XCM dependencies
+xcm = { git = "https://github.com/paritytech/polkadot.git", default-features = false, branch = "release-v1.0.0" }
+xcm-builder = { git = "https://github.com/paritytech/polkadot.git", default-features = false, branch = "release-v1.0.0" }
+xcm-executor = { git = "https://github.com/paritytech/polkadot.git", default-features = false, branch = "release-v1.0.0" }
+
 [build-dependencies]
 substrate-wasm-builder = { version = "5.0.0-dev", git = "https://github.com/paritytech/substrate.git", optional = true, branch = "polkadot-v1.0.0" }
 
@@ -59,6 +65,7 @@ substrate-wasm-builder = { version = "5.0.0-dev", git = "https://github.com/pari
 default = ["std"]
 std = [
 	"codec/std",
+	"log/std",
 	"scale-info/std",
 
 	"frame-executive/std",
@@ -95,6 +102,10 @@ std = [
 	"pallet-transaction-storage/std",
 	"pallet-validator-set/std",
 
+	"xcm/std",
+	"xcm-builder/std",
+	"xcm-executor/std",
+
 	"substrate-wasm-builder",
 ]
 runtime-benchmarks = [
@@ -113,6 +124,9 @@ runtime-benchmarks = [
 
 	"pallet-transaction-storage/runtime-benchmarks",
 	"pallet-validator-set/runtime-benchmarks",
+
+	"xcm-builder/runtime-benchmarks",
+	"xcm-executor/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-executive/try-runtime",
