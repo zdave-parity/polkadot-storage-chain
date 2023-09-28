@@ -5636,6 +5636,7 @@ dependencies = [
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
+ "log",
  "pallet-authorship",
  "pallet-babe",
  "pallet-bridge-grandpa",
@@ -5670,6 +5671,8 @@ dependencies = [
  "static_assertions",
  "substrate-wasm-builder",
  "xcm",
+ "xcm-builder",
+ "xcm-executor",
 ]
 
 [[package]]

@@ -55,6 +55,7 @@ pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
 mod bridge_config;
+mod xcm_config;
 
 /// An index to a block.
 pub type BlockNumber = u32;
