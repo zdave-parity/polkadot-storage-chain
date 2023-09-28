@@ -21,8 +21,14 @@ git remote add -f bridges https://github.com/paritytech/parity-bridges-common.gi
 git fetch bridges --prune
 git subtree pull --prefix=bridges bridges polkadot-v.1.0.0-audited --squash
 
+# if the command above fails with the "Can't squash-merge: 'bridges' was never added" or
+# "fatal: refusing to merge unrelated histories" error, use this:
+# git merge -s subtree -Xsubtree="bridges" bridges/polkadot-v.1.0.0-audited --allow-unrelated-histories --squash
+
 # so, after fetch and before solving conflicts just run patch,
 # this will remove unneeded files and checks if subtree modules compiles
+#
+# if it fails to build, you'll need to resolve conflicts manually
 ./bridges/scripts/verify-pallets-build.sh --ignore-git-state --no-revert
 
 # if there are conflicts, this could help,

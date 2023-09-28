@@ -6,8 +6,12 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+use bridge_runtime_common::generate_bridge_reject_obsolete_headers_and_messages;
 use frame_support::traits::ValidatorRegistration;
 use frame_system::EnsureRoot;
+use pallet_bridge_grandpa::Call as BridgeGrandpaCall;
+use pallet_bridge_messages::Call as BridgeMessagesCall;
+use pallet_bridge_parachains::Call as BridgeParachainsCall;
 use pallet_grandpa::AuthorityId as GrandpaId;
 use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 use sp_api::impl_runtime_apis;
@@ -50,6 +54,7 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
+mod bridge_config;
 mod xcm_config;
 
 /// An index to a block.
@@ -379,6 +384,10 @@ construct_runtime!(
 		Grandpa: pallet_grandpa,
 		Sudo: pallet_sudo,
 		TransactionStorage: pallet_transaction_storage,
+		// Bridge pallets
+		BridgePolkadotGrandpa: pallet_bridge_grandpa,
+		BridgePolkadotParachains: pallet_bridge_parachains,
+		BridgePolkadotMessages: pallet_bridge_messages,
 	}
 );
 
@@ -455,6 +464,18 @@ impl SignedExtension for ValidateSigned {
 				ValidatorSet::pre_dispatch_set_keys(who),
 			Self::Call::Session(pallet_session::Call::<Runtime>::purge_keys {}) =>
 				validate_purge_keys(who).map(|_| ()),
+			Self::Call::BridgePolkadotGrandpa(BridgeGrandpaCall::submit_finality_proof {
+				..
+			}) |
+			Self::Call::BridgePolkadotParachains(
+				BridgeParachainsCall::submit_parachain_heads { .. },
+			) |
+			Self::Call::BridgePolkadotMessages(BridgeMessagesCall::receive_messages_proof {
+				..
+			}) |
+			Self::Call::BridgePolkadotMessages(
+				BridgeMessagesCall::receive_messages_delivery_proof { .. },
+			) => bridge_config::ensure_whitelisted_relayer(who).map(|_| ()),
 			_ => Err(InvalidTransaction::Call.into()),
 		}
 	}
@@ -477,9 +498,33 @@ impl SignedExtension for ValidateSigned {
 				}),
 			Self::Call::Session(pallet_session::Call::<Runtime>::purge_keys {}) =>
 				validate_purge_keys(who),
+			Self::Call::BridgePolkadotGrandpa(BridgeGrandpaCall::submit_finality_proof {
+				..
+			}) |
+			Self::Call::BridgePolkadotParachains(
+				BridgeParachainsCall::submit_parachain_heads { .. },
+			) |
+			Self::Call::BridgePolkadotMessages(BridgeMessagesCall::receive_messages_proof {
+				..
+			}) |
+			Self::Call::BridgePolkadotMessages(
+				BridgeMessagesCall::receive_messages_delivery_proof { .. },
+			) => bridge_config::ensure_whitelisted_relayer(who),
 			_ => Err(InvalidTransaction::Call.into()),
 		}
 	}
+}
+
+// it'll generate signed extensions to invalidate obsolete bridge transactions before
+// they'll be included into block
+generate_bridge_reject_obsolete_headers_and_messages! {
+	RuntimeCall, AccountId,
+	// Grandpa
+	BridgePolkadotGrandpa,
+	// Parachains
+	BridgePolkadotParachains,
+	// Messages
+	BridgePolkadotMessages
 }
 
 /// The SignedExtension to the basic transaction logic.
@@ -492,6 +537,7 @@ pub type SignedExtra = (
 	frame_system::CheckNonce<Runtime>,
 	frame_system::CheckWeight<Runtime>,
 	ValidateSigned,
+	BridgeRejectObsoleteHeadersAndMessages,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
