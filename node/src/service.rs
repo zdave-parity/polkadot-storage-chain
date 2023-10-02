@@ -234,12 +234,14 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
 				pool: pool.clone(),
-				subscription_executor,
-				shared_authority_set: shared_authority_set.clone(),
-				shared_voter_state: shared_voter_state.clone(),
-				justification_stream: justification_stream.clone(),
-				finality_proof_provider: finality_proof_provider.clone(),
 				deny_unsafe,
+				grandpa: crate::rpc::GrandpaDeps {
+					subscription_executor,
+					shared_authority_set: shared_authority_set.clone(),
+					shared_voter_state: shared_voter_state.clone(),
+					justification_stream: justification_stream.clone(),
+					finality_proof_provider: finality_proof_provider.clone(),
+				},
 			};
 			crate::rpc::create_full(deps).map_err(Into::into)
 		})

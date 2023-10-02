@@ -27,6 +27,14 @@ pub struct FullDeps<C, P, B> {
 	pub client: Arc<C>,
 	/// Transaction pool instance.
 	pub pool: Arc<P>,
+	/// Whether to deny unsafe calls.
+	pub deny_unsafe: DenyUnsafe,
+	/// GRANDPA RPC dependencies.
+	pub grandpa: GrandpaDeps<B>,
+}
+
+/// GRANDPA RPC dependncies.
+pub struct GrandpaDeps<B> {
 	/// Subscription task executor.
 	pub subscription_executor: SubscriptionTaskExecutor,
 	/// GRANDPA authority set.
@@ -37,8 +45,6 @@ pub struct FullDeps<C, P, B> {
 	pub justification_stream: GrandpaJustificationStream<Block>,
 	/// Finality proof provider.
 	pub finality_proof_provider: Arc<FinalityProofProvider<B, Block>>,
-	/// Whether to deny unsafe calls
-	pub deny_unsafe: DenyUnsafe,
 }
 
 /// Instantiate all full RPC extensions.
@@ -57,25 +63,16 @@ where
 	use substrate_frame_rpc_system::{System, SystemApiServer};
 
 	let mut module = RpcModule::new(());
-	let FullDeps {
-		client,
-		pool,
-		subscription_executor,
-		shared_authority_set,
-		shared_voter_state,
-		justification_stream,
-		finality_proof_provider,
-		deny_unsafe,
-	} = deps;
+	let FullDeps { client, pool, deny_unsafe, grandpa } = deps;
 
-	module.merge(System::new(client.clone(), pool, deny_unsafe).into_rpc())?;
+	module.merge(System::new(client, pool, deny_unsafe).into_rpc())?;
 	module.merge(
 		Grandpa::new(
-			subscription_executor.clone(),
-			shared_authority_set.clone(),
-			shared_voter_state.clone(),
-			justification_stream.clone(),
-			finality_proof_provider.clone(),
+			grandpa.subscription_executor,
+			grandpa.shared_authority_set,
+			grandpa.shared_voter_state,
+			grandpa.justification_stream,
+			grandpa.finality_proof_provider,
 		)
 		.into_rpc(),
 	)?;
