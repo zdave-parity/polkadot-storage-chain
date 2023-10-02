@@ -1,6 +1,9 @@
 //! With Polkadot Bridge Hub bridge configuration.
 
-use crate::{AccountId, Runtime, RuntimeEvent, RuntimeOrigin};
+use crate::{
+	xcm_config::{decode_bridge_message, XcmConfig},
+	AccountId, Runtime, RuntimeEvent, RuntimeOrigin,
+};
 
 use bp_messages::{
 	target_chain::{DispatchMessage, MessageDispatch},
@@ -17,12 +20,17 @@ use bridge_runtime_common::{
 		target::SourceHeaderChainAdapter,
 		BridgedChainWithMessages, MessageBridge, ThisChainWithMessages,
 	},
-	messages_xcm_extension::{SenderAndLane, XcmAsPlainPayload},
+	messages_xcm_extension::{
+		SenderAndLane, XcmAsPlainPayload, XcmBlobHauler, XcmBlobHaulerAdapter,
+		XcmBlobMessageDispatch,
+	},
 };
 use frame_support::{parameter_types, RuntimeDebug};
 use sp_runtime::transaction_validity::{InvalidTransaction, TransactionValidity};
-use sp_std::vec::Vec;
+use sp_std::{marker::PhantomData, vec::Vec};
 use xcm::prelude::*;
+use xcm_builder::HaulBlobExporter;
+use xcm_executor::XcmExecutor;
 
 /// Lane that we are using to send and receive messages.
 pub const XCM_LANE: LaneId = LaneId([0, 0, 0, 0]);
@@ -67,6 +75,9 @@ parameter_types! {
 		Here.into(),
 		XCM_LANE,
 	);
+
+	/// XCM message that is never sent to anyone.
+	pub NeverSentMessage: Option<Xcm<()>> = None;
 }
 
 /// An instance of `pallet_bridge_grandpa` used to bridge with Polkadot.
@@ -119,7 +130,9 @@ impl pallet_bridge_messages::Config<WithBridgeHubPolkadotMessagesInstance> for R
 	type DeliveryConfirmationPayments = ();
 
 	type SourceHeaderChain = SourceHeaderChainAdapter<WithBridgeHubPolkadotMessageBridge>;
-	type MessageDispatch = FromBridgeHubPolkadotBlobDispatcher;
+	type MessageDispatch = WithXcmWeightDispatcher<
+		XcmBlobMessageDispatch<FromBridgeHubPolkadotBlobDispatcher, Self::WeightInfo, ()>,
+	>;
 	type OnMessagesDelivered = ();
 }
 
@@ -163,27 +176,60 @@ impl ThisChainWithMessages for PolkadotBulletinChain {
 	type RuntimeOrigin = RuntimeOrigin;
 }
 
-// TODO [bridge]: replace with immediate XCM dispatcher
-/// Dispatches received XCM messages from the Polkadot Bridge Hub.
-pub struct FromBridgeHubPolkadotBlobDispatcher;
+/// Message dispatcher that decodes XCM message and return its actual dispatch weight.
+pub struct WithXcmWeightDispatcher<Inner>(PhantomData<Inner>);
 
-impl MessageDispatch for FromBridgeHubPolkadotBlobDispatcher {
+impl<Inner> MessageDispatch for WithXcmWeightDispatcher<Inner>
+where
+	Inner: MessageDispatch<DispatchPayload = XcmAsPlainPayload>,
+{
 	type DispatchPayload = XcmAsPlainPayload;
-	type DispatchLevelResult = ();
+	type DispatchLevelResult = Inner::DispatchLevelResult;
 
 	fn is_active() -> bool {
-		true
+		Inner::is_active()
 	}
 
-	fn dispatch_weight(_message: &mut DispatchMessage<Self::DispatchPayload>) -> Weight {
-		Weight::zero()
+	fn dispatch_weight(message: &mut DispatchMessage<Self::DispatchPayload>) -> Weight {
+		message
+			.data
+			.payload
+			.as_ref()
+			.map_err(drop)
+			.and_then(|payload| decode_bridge_message(payload).map(|(_, xcm)| xcm).map_err(drop))
+			.and_then(|xcm| xcm.try_into().map_err(drop))
+			.and_then(|xcm| XcmExecutor::<XcmConfig>::prepare(xcm).map_err(drop))
+			.map(|weighed_xcm| weighed_xcm.weight_of())
+			.unwrap_or(Weight::zero())
 	}
 
 	fn dispatch(
-		_: DispatchMessage<Self::DispatchPayload>,
+		message: DispatchMessage<Self::DispatchPayload>,
 	) -> MessageDispatchResult<Self::DispatchLevelResult> {
-		MessageDispatchResult { unspent_weight: Weight::zero(), dispatch_level_result: () }
+		let mut result = Inner::dispatch(message);
+		// ensure that unspent is always zero here to avoid inconstency
+		result.unspent_weight = Weight::zero();
+		result
 	}
+}
+
+/// Dispatches received XCM messages from the Polkadot Bridge Hub.
+pub type FromBridgeHubPolkadotBlobDispatcher = crate::xcm_config::ImmediateXcmDispatcher;
+
+/// Export XCM messages to be relayed to the Polkadot Bridge Hub chain.
+pub type ToBridgeHubPolkadotHaulBlobExporter =
+	HaulBlobExporter<XcmBlobHaulerAdapter<ToBridgeHubPolkadotXcmBlobHauler>, PolkadotNetwork, ()>;
+
+/// Messages pallet adapter to use by XCM blob hauler.
+pub struct ToBridgeHubPolkadotXcmBlobHauler;
+impl XcmBlobHauler for ToBridgeHubPolkadotXcmBlobHauler {
+	type Runtime = Runtime;
+	type MessagesInstance = WithBridgeHubPolkadotMessagesInstance;
+	type SenderAndLane = FromPolkadotBulletinToBridgeHubPolkadotRoute;
+
+	type ToSourceChainSender = ();
+	type CongestedMessage = NeverSentMessage;
+	type UncongestedMessage = NeverSentMessage;
 }
 
 /// Ensure that the account provided is the whitelisted relayer account.
@@ -199,14 +245,21 @@ pub fn ensure_whitelisted_relayer(who: &AccountId) -> TransactionValidity {
 pub(crate) mod tests {
 	use super::*;
 	use crate::{
+		xcm_config::{
+			tests::{
+				encoded_xcm_message_from_bridge_hub_polkadot,
+				encoded_xcm_message_from_bridge_hub_polkadot_require_wight_at_most,
+			},
+			BaseXcmWeight,
+		},
 		BridgePolkadotGrandpa, BridgePolkadotMessages, BridgeRejectObsoleteHeadersAndMessages,
 		Executive, RuntimeCall, Signature, SignedExtra, SignedPayload, UncheckedExtrinsic,
 		ValidateSigned,
 	};
 	use bp_header_chain::{justification::GrandpaJustification, HeaderChain, InitializationData};
 	use bp_messages::{
-		DeliveredMessages, InboundLaneData, OutboundLaneData, UnrewardedRelayer,
-		UnrewardedRelayersState,
+		target_chain::DispatchMessageData, DeliveredMessages, InboundLaneData, MessageKey,
+		OutboundLaneData, UnrewardedRelayer, UnrewardedRelayersState,
 	};
 	use bp_polkadot_core::parachains::{ParaHead, ParaHeadsProof};
 	use bp_runtime::{
@@ -798,6 +851,24 @@ pub(crate) mod tests {
 				with_bridged_chain_messages_pallet_name:
 					bp_bridge_hub_polkadot::WITH_BRIDGE_HUB_POLKADOT_MESSAGES_PALLET_NAME,
 			},
+		});
+	}
+
+	#[test]
+	fn dispatch_weight_of_inbound_message_is_correct() {
+		run_test(|| {
+			assert_eq!(
+				<Runtime as pallet_bridge_messages::Config<
+					WithBridgeHubPolkadotMessagesInstance,
+				>>::MessageDispatch::dispatch_weight(&mut DispatchMessage {
+					key: MessageKey { lane_id: XCM_LANE, nonce: 1 },
+					data: DispatchMessageData {
+						payload: Ok(encoded_xcm_message_from_bridge_hub_polkadot())
+					},
+				}),
+				encoded_xcm_message_from_bridge_hub_polkadot_require_wight_at_most()
+					.saturating_add(BaseXcmWeight::get())
+			);
 		});
 	}
 }
