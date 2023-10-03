@@ -280,9 +280,7 @@ impl DispatchBlob for ImmediateXcmDispatcher {
 
 			// nothing better than this error :/
 			DispatchBlobError::RoutingError
-		})?;
-
-		Ok(())
+		})
 	}
 }
 
