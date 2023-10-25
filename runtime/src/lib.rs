@@ -14,6 +14,7 @@ use pallet_bridge_messages::Call as BridgeMessagesCall;
 use pallet_bridge_parachains::Call as BridgeParachainsCall;
 use pallet_grandpa::AuthorityId as GrandpaId;
 use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
+use pallet_session::Call as SessionCall;
 use sp_api::impl_runtime_apis;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
@@ -460,10 +461,9 @@ impl SignedExtension for ValidateSigned {
 			Self::Call::TransactionStorage(call) =>
 				TransactionStorage::pre_dispatch_signed(who, call),
 			Self::Call::Sudo(_) => validate_sudo(who).map(|_| ()),
-			Self::Call::Session(pallet_session::Call::<Runtime>::set_keys { .. }) =>
+			Self::Call::Session(SessionCall::set_keys { .. }) =>
 				ValidatorSet::pre_dispatch_set_keys(who),
-			Self::Call::Session(pallet_session::Call::<Runtime>::purge_keys {}) =>
-				validate_purge_keys(who).map(|_| ()),
+			Self::Call::Session(SessionCall::purge_keys {}) => validate_purge_keys(who).map(|_| ()),
 			Self::Call::BridgePolkadotGrandpa(BridgeGrandpaCall::submit_finality_proof {
 				..
 			}) |
@@ -490,14 +490,13 @@ impl SignedExtension for ValidateSigned {
 		match call {
 			Self::Call::TransactionStorage(call) => TransactionStorage::validate_signed(who, call),
 			Self::Call::Sudo(_) => validate_sudo(who),
-			Self::Call::Session(pallet_session::Call::<Runtime>::set_keys { .. }) =>
+			Self::Call::Session(SessionCall::set_keys { .. }) =>
 				ValidatorSet::validate_set_keys(who).map(|_| ValidTransaction {
 					priority: SetPurgeKeysPriority::get(),
 					longevity: SetPurgeKeysLongevity::get(),
 					..Default::default()
 				}),
-			Self::Call::Session(pallet_session::Call::<Runtime>::purge_keys {}) =>
-				validate_purge_keys(who),
+			Self::Call::Session(SessionCall::purge_keys {}) => validate_purge_keys(who),
 			Self::Call::BridgePolkadotGrandpa(BridgeGrandpaCall::submit_finality_proof {
 				..
 			}) |
