@@ -41,7 +41,7 @@ fn active_validators() -> HashSet<AccountId> {
 }
 
 #[test]
-fn simple_setup_should_work() {
+fn initial_validators() {
 	new_test_ext().execute_with(|| {
 		assert_eq!(validators(), HashSet::from([1, 2, 3]));
 		assert_eq!(active_validators(), HashSet::from([1, 2, 3]));
