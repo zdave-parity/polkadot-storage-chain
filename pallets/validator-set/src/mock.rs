@@ -129,8 +129,8 @@ impl frame_system::Config for Test {
 	type RuntimeCall = RuntimeCall;
 	type Hash = H256;
 	type Hashing = BlakeTwo256;
-	type AccountId = u64;
-	type Lookup = IdentityLookup<Self::AccountId>;
+	type AccountId = AccountId;
+	type Lookup = IdentityLookup<AccountId>;
 	type Block = Block;
 	type RuntimeEvent = RuntimeEvent;
 	type BlockHashCount = ConstU64<250>;
@@ -152,13 +152,13 @@ parameter_types! {
 impl pallet_validator_set::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = ();
-	type AddRemoveOrigin = EnsureRoot<Self::AccountId>;
+	type AddRemoveOrigin = EnsureRoot<AccountId>;
 	type MaxAuthorities = ConstU32<6>;
 	type SetKeysCooldownBlocks = SetKeysCooldownBlocks;
 }
 
 impl pallet_session::Config for Test {
-	type ValidatorId = Self::AccountId;
+	type ValidatorId = AccountId;
 	type ValidatorIdOf = ConvertInto;
 	type ShouldEndSession = MockShouldEndSession;
 	type NextSessionRotation = ();
