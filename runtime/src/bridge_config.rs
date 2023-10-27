@@ -362,7 +362,7 @@ pub(crate) mod tests {
 		signer: AccountKeyring,
 		call: RuntimeCall,
 	) -> sp_runtime::ApplyExtrinsicResult {
-		let nonce = frame_system::Account::<Runtime>::get(AccountId::from(signer.clone())).nonce;
+		let nonce = frame_system::Account::<Runtime>::get(AccountId::from(signer)).nonce;
 		let extra: SignedExtra = (
 			frame_system::CheckNonZeroSender::<Runtime>::new(),
 			frame_system::CheckSpecVersion::<Runtime>::new(),
