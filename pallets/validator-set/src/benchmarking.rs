@@ -16,15 +16,15 @@
 
 #![cfg(feature = "runtime-benchmarks")]
 
-use super::*;
+use super::{Pallet as ValidatorSet, *};
 use frame_benchmarking::v2::{account, benchmarks, impl_benchmark_test_suite, vec, BenchmarkError};
 use frame_support::traits::EnsureOrigin;
-use frame_system::EventRecord;
+use frame_system::{EventRecord, Pallet as System};
 
 const SEED: u32 = 0;
 
 fn assert_last_event<T: Config>(generic_event: <T as Config>::RuntimeEvent) {
-	let events = frame_system::Pallet::<T>::events();
+	let events = System::<T>::events();
 	let system_event: <T as frame_system::Config>::RuntimeEvent = generic_event.into();
 	let EventRecord { event, .. } = &events[events.len() - 1];
 	assert_eq!(event, &system_event);
@@ -53,7 +53,7 @@ mod benchmarks {
 			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
 		let who: T::AccountId = account("validator", 0, SEED);
 
-		Pallet::<T>::add_validator(origin.clone(), who.clone())
+		ValidatorSet::<T>::add_validator(origin.clone(), who.clone())
 			.map_err(|_| BenchmarkError::Stop("unable to add validator"))?;
 
 		#[extrinsic_call]
