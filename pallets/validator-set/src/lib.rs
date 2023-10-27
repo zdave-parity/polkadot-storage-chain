@@ -73,7 +73,7 @@ struct Validator<BlockNumber> {
 	min_set_keys_block: BlockNumber,
 }
 
-#[frame_support::pallet()]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
