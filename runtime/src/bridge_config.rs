@@ -17,7 +17,7 @@ use bridge_runtime_common::{
 		target::SourceHeaderChainAdapter,
 		BridgedChainWithMessages, MessageBridge, ThisChainWithMessages,
 	},
-	messages_xcm_extension::{SenderAndLane, XcmAsPlainPayload},
+	messages_xcm_extension::XcmAsPlainPayload,
 };
 use frame_support::{parameter_types, RuntimeDebug};
 use xcm::prelude::*;
@@ -34,8 +34,6 @@ parameter_types! {
 	/// A name of parachains pallet at Pokadot.
 	pub const AtPolkadotParasPalletName: &'static str = bp_polkadot::PARAS_PALLET_NAME;
 
-	/// The Polkadot Chain network ID.
-	pub const PolkadotNetwork: NetworkId = Polkadot;
 	/// Chain identifier of Polkadot Bridge Hub.
 	pub const BridgeHubPolkadotChainId: ChainId = bp_runtime::BRIDGE_HUB_POLKADOT_CHAIN_ID;
 	/// A number of Polkadot Bridge Hub head digests that we keep in the storage.
@@ -51,12 +49,6 @@ parameter_types! {
 	/// Maximal number of unconfirmed messages.
 	pub const MaxUnconfirmedMessagesAtInboundLane: MessageNonce =
 		bp_bridge_hub_polkadot::MAX_UNCONFIRMED_MESSAGES_IN_CONFIRMATION_TX;
-
-	/// Sending chain location and lane used to communicate with Polkadot Bulletin chain.
-	pub FromPolkadotBulletinToBridgeHubPolkadotRoute: SenderAndLane = SenderAndLane::new(
-		Here.into(),
-		XCM_LANE,
-	);
 }
 
 /// An instance of `pallet_bridge_grandpa` used to bridge with Polkadot.
