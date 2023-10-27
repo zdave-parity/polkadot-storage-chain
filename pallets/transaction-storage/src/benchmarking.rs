@@ -19,14 +19,12 @@
 
 #![cfg(feature = "runtime-benchmarks")]
 
-use super::*;
+use super::{Pallet as TransactionStorage, *};
 use frame_benchmarking::{v2::*, whitelisted_caller};
 use frame_support::traits::{EnsureOrigin, Get, OnFinalize, OnInitialize};
 use frame_system::{pallet_prelude::BlockNumberFor, EventRecord, Pallet as System, RawOrigin};
 use sp_runtime::traits::{One, Zero};
 use sp_transaction_storage_proof::TransactionStorageProof;
-
-use crate::Pallet as TransactionStorage;
 
 // Proof generated from max size storage:
 // ```
@@ -110,14 +108,12 @@ fn assert_last_event<T: Config>(generic_event: <T as Config>::RuntimeEvent) {
 }
 
 pub fn run_to_block<T: Config>(n: frame_system::pallet_prelude::BlockNumberFor<T>) {
-	while frame_system::Pallet::<T>::block_number() < n {
-		crate::Pallet::<T>::on_finalize(frame_system::Pallet::<T>::block_number());
-		frame_system::Pallet::<T>::on_finalize(frame_system::Pallet::<T>::block_number());
-		frame_system::Pallet::<T>::set_block_number(
-			frame_system::Pallet::<T>::block_number() + One::one(),
-		);
-		frame_system::Pallet::<T>::on_initialize(frame_system::Pallet::<T>::block_number());
-		crate::Pallet::<T>::on_initialize(frame_system::Pallet::<T>::block_number());
+	while System::<T>::block_number() < n {
+		TransactionStorage::<T>::on_finalize(System::<T>::block_number());
+		System::<T>::on_finalize(System::<T>::block_number());
+		System::<T>::set_block_number(System::<T>::block_number() + One::one());
+		System::<T>::on_initialize(System::<T>::block_number());
+		TransactionStorage::<T>::on_initialize(System::<T>::block_number());
 	}
 }
 
@@ -208,7 +204,7 @@ mod benchmarks {
 			.map_err(|_| BenchmarkError::Stop("unable to authorize account"))?;
 
 		let period = T::AuthorizationPeriod::get();
-		let now = frame_system::Pallet::<T>::block_number();
+		let now = System::<T>::block_number();
 		run_to_block::<T>(now + period);
 
 		#[extrinsic_call]
@@ -227,7 +223,7 @@ mod benchmarks {
 			.map_err(|_| BenchmarkError::Stop("unable to authorize preimage"))?;
 
 		let period = T::AuthorizationPeriod::get();
-		let now = frame_system::Pallet::<T>::block_number();
+		let now = System::<T>::block_number();
 		run_to_block::<T>(now + period);
 
 		#[extrinsic_call]
