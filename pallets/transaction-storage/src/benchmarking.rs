@@ -176,7 +176,7 @@ mod benchmarks {
 			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
 		let who: T::AccountId = whitelisted_caller();
 		let transactions = 10;
-		let bytes: u64 = 1 * 1024 * 1024;
+		let bytes: u64 = 1024 * 1024;
 
 		#[extrinsic_call]
 		_(origin as T::RuntimeOrigin, who.clone(), transactions, bytes);
@@ -190,7 +190,7 @@ mod benchmarks {
 		let origin = T::Authorizer::try_successful_origin()
 			.map_err(|_| BenchmarkError::Stop("unable to compute origin"))?;
 		let hash = [0u8; 32];
-		let max_size: u64 = 1 * 1024 * 1024;
+		let max_size: u64 = 1024 * 1024;
 
 		#[extrinsic_call]
 		_(origin as T::RuntimeOrigin, hash, max_size);
