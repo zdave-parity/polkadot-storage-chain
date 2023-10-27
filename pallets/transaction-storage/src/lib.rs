@@ -642,9 +642,8 @@ pub mod pallet {
 					if let Err(err) = frame_system::Pallet::<T>::dec_providers(who) {
 						log::warn!(
 							target: LOG_TARGET,
-							"Failed to decrement provider reference count for authorized account {:?}, \
-							leaking reference: {:?}",
-							who, err
+							"Failed to decrement provider reference count for authorized account {who:?}, \
+							leaking reference: {err:?}"
 						);
 					}
 				},
