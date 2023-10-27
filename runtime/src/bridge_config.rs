@@ -533,7 +533,7 @@ pub(crate) mod tests {
 				BridgePolkadotGrandpa::best_finalized(),
 				Some(polkadot_header(HeaderType::WithMessages).id())
 			);
-		})
+		});
 	}
 
 	#[test]
@@ -574,7 +574,7 @@ pub(crate) mod tests {
 				),
 				Some(*bridge_hub_polkadot_header(HeaderType::WithMessages).state_root())
 			);
-		})
+		});
 	}
 
 	#[test]
@@ -599,7 +599,7 @@ pub(crate) mod tests {
 			// Relayer may deliver messages from Polkadot BH
 			assert_ok_ok(submit_messages_from_polkadot_bridge_hub(relayer_signer()));
 			assert!(!BridgePolkadotMessages::inbound_lane_data(XCM_LANE).relayers.is_empty());
-		})
+		});
 	}
 
 	#[test]
@@ -637,7 +637,7 @@ pub(crate) mod tests {
 				BridgePolkadotMessages::outbound_lane_data(XCM_LANE).latest_received_nonce,
 				0
 			);
-		})
+		});
 	}
 
 	#[test]
