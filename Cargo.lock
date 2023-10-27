@@ -5104,6 +5104,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-relayer-set"
+version = "1.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-session"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
@@ -5647,6 +5663,7 @@ dependencies = [
  "pallet-grandpa",
  "pallet-im-online",
  "pallet-offences",
+ "pallet-relayer-set",
  "pallet-session",
  "pallet-sudo",
  "pallet-timestamp",

@@ -1,8 +1,8 @@
 use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 use polkadot_bulletin_chain_runtime::{
 	opaque::SessionKeys, AccountId, BabeConfig, BridgePolkadotGrandpaConfig,
-	BridgePolkadotMessagesConfig, BridgePolkadotParachainsConfig, RuntimeGenesisConfig,
-	SessionConfig, Signature, SudoConfig, SystemConfig, ValidatorSetConfig,
+	BridgePolkadotMessagesConfig, BridgePolkadotParachainsConfig, RelayerSetConfig,
+	RuntimeGenesisConfig, SessionConfig, Signature, SudoConfig, SystemConfig, ValidatorSetConfig,
 	BABE_GENESIS_EPOCH_CONFIG, WASM_BINARY,
 };
 use sc_service::ChainType;
@@ -151,6 +151,12 @@ fn testnet_genesis(
 		sudo: SudoConfig {
 			// Assign network admin rights.
 			key: Some(root_key.clone()),
+		},
+		relayer_set: RelayerSetConfig {
+			// For simplicity just make the initial relayer set match the initial validator set. In
+			// practice even if the same entities control the validators and the relayers they
+			// would want to use separate keys for the relayers.
+			initial_relayers: initial_authorities.iter().map(|x| x.0.clone()).collect::<Vec<_>>(),
 		},
 		bridge_polkadot_grandpa: BridgePolkadotGrandpaConfig {
 			owner: Some(root_key.clone()),

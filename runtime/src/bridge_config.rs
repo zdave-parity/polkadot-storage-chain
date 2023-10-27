@@ -20,22 +20,12 @@ use bridge_runtime_common::{
 	messages_xcm_extension::{SenderAndLane, XcmAsPlainPayload},
 };
 use frame_support::{parameter_types, RuntimeDebug};
-use sp_runtime::transaction_validity::{InvalidTransaction, TransactionValidity};
-use sp_std::vec::Vec;
 use xcm::prelude::*;
 
 /// Lane that we are using to send and receive messages.
 pub const XCM_LANE: LaneId = LaneId([0, 0, 0, 0]);
 
 parameter_types! {
-	/// A set of message relayers, who are able to submit message delivery transactions
-	/// and physically deliver messages on this chain.
-	///
-	/// It can be changed by the governance later.
-	pub storage WhitelistedRelayers: Vec<AccountId> = {
-		crate::Sudo::key().map(|sudo_key| sp_std::vec![sudo_key]).unwrap_or_default()
-	};
-
 	/// A number of Polkadot mandatory headers that are accepted for free at every
 	/// **this chain** block.
 	pub const MaxFreePolkadotHeadersPerBlock: u32 = 4;
@@ -186,15 +176,6 @@ impl MessageDispatch for FromBridgeHubPolkadotBlobDispatcher {
 	}
 }
 
-/// Ensure that the account provided is the whitelisted relayer account.
-pub fn ensure_whitelisted_relayer(who: &AccountId) -> TransactionValidity {
-	if !WhitelistedRelayers::get().contains(who) {
-		return Err(InvalidTransaction::BadSigner.into())
-	}
-
-	Ok(Default::default())
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
 	use super::*;
@@ -232,7 +213,11 @@ pub(crate) mod tests {
 	use sp_api::HeaderT;
 	use sp_consensus_grandpa::{AuthorityList, SetId};
 	use sp_keyring::AccountKeyring;
-	use sp_runtime::{generic::Era, transaction_validity::TransactionValidityError, BuildStorage};
+	use sp_runtime::{
+		generic::Era,
+		transaction_validity::{InvalidTransaction, TransactionValidityError},
+		BuildStorage,
+	};
 	use sp_trie::{trie_types::TrieDBMutBuilderV1, LayoutV1, MemoryDB, TrieMut};
 
 	const POLKADOT_HEADER_NUMBER: bp_polkadot::BlockNumber = 100;
@@ -409,8 +394,13 @@ pub(crate) mod tests {
 		pallet_sudo::GenesisConfig::<Runtime> { key: Some(sudo_signer().into()) }
 			.assimilate_storage(&mut t)
 			.unwrap();
+		pallet_relayer_set::GenesisConfig::<Runtime> {
+			initial_relayers: vec![relayer_signer().into()],
+		}
+		.assimilate_storage(&mut t)
+		.unwrap();
 
-		sp_io::TestExternalities::new(t).execute_with(|| test())
+		sp_io::TestExternalities::new(t).execute_with(test)
 	}
 
 	fn initialize_polkadot_grandpa_pallet() -> sp_runtime::ApplyExtrinsicResult {
@@ -512,35 +502,6 @@ pub(crate) mod tests {
 	}
 
 	#[test]
-	fn sudo_account_is_in_whitelisted_relayers_by_default() {
-		run_test(|| {
-			// until it is explicitly changed, sudo may submit bridge transactions
-			assert_eq!(WhitelistedRelayers::get(), vec![sudo_signer().into()]);
-		})
-	}
-
-	#[test]
-	fn may_change_whitelisted_relayers_set_using_sudo() {
-		run_test(|| {
-			let whitelisted_relayers_key = WhitelistedRelayers::key().to_vec();
-			let new_whitelisted_relayers = vec![AccountId::from(relayer_signer())].encode();
-
-			// sudo may change the whitelisted relayers set
-			assert_ok_ok(construct_and_apply_extrinsic(
-				sudo_signer(),
-				RuntimeCall::Sudo(pallet_sudo::Call::sudo {
-					call: Box::new(RuntimeCall::System(frame_system::Call::set_storage {
-						items: vec![(whitelisted_relayers_key, new_whitelisted_relayers)],
-					})),
-				}),
-			));
-
-			// and then it itself is missing from the set
-			assert_eq!(WhitelistedRelayers::get(), vec![relayer_signer().into()]);
-		});
-	}
-
-	#[test]
 	fn may_initialize_grandpa_pallet_using_sudo() {
 		run_test(|| {
 			assert_eq!(BridgePolkadotGrandpa::best_finalized(), None);
@@ -553,16 +514,28 @@ pub(crate) mod tests {
 	}
 
 	#[test]
-	fn whitelisted_relayer_may_submit_polkadot_headers() {
+	fn only_relayer_may_submit_polkadot_headers() {
 		run_test(|| {
-			WhitelistedRelayers::set(&vec![relayer_signer().into()]);
 			assert_ok_ok(initialize_polkadot_grandpa_pallet());
 
-			// whitelisted relayer may submit regular Polkadot headers delivery transactions
 			assert_eq!(
 				BridgePolkadotGrandpa::best_finalized(),
 				Some(polkadot_initial_header().id())
 			);
+
+			// Non-relayer may not submit Polkadot headers
+			// can't use assert_noop here, because we need to mutate storage inside
+			// the `construct_and_apply_extrinsic`
+			assert_eq!(
+				submit_polkadot_header(non_relay_signer(), HeaderType::WithMessages),
+				Err(TransactionValidityError::Invalid(InvalidTransaction::BadSigner))
+			);
+			assert_eq!(
+				BridgePolkadotGrandpa::best_finalized(),
+				Some(polkadot_initial_header().id())
+			);
+
+			// Relayer may submit Polkadot headers
 			assert_ok_ok(submit_polkadot_header(relayer_signer(), HeaderType::WithMessages));
 			assert_eq!(
 				BridgePolkadotGrandpa::best_finalized(),
@@ -572,44 +545,33 @@ pub(crate) mod tests {
 	}
 
 	#[test]
-	fn non_relayer_may_not_submit_polkadot_headers() {
+	fn only_relayer_may_submit_polkadot_bridge_hub_headers() {
 		run_test(|| {
-			run_test(|| {
-				assert_ok_ok(initialize_polkadot_grandpa_pallet());
-
-				// non-whitelisted account may submit regular Polkadot headers delivery transactions
-				assert_eq!(
-					BridgePolkadotGrandpa::best_finalized(),
-					Some(polkadot_initial_header().id())
-				);
-				// can't use assert_noop here, because we need to mutate storage inside
-				// the `construct_and_apply_extrinsic`
-				assert_eq!(
-					submit_polkadot_header(non_relay_signer(), HeaderType::WithMessages),
-					Err(TransactionValidityError::Invalid(InvalidTransaction::BadSigner))
-				);
-				assert_eq!(
-					BridgePolkadotGrandpa::best_finalized(),
-					Some(polkadot_initial_header().id())
-				);
-			})
-		})
-	}
-
-	#[test]
-	fn whitelisted_relayer_may_submit_polkadot_bridge_hub_headers() {
-		run_test(|| {
-			WhitelistedRelayers::set(&vec![relayer_signer().into()]);
 			assert_ok_ok(initialize_polkadot_grandpa_pallet());
 			assert_ok_ok(submit_polkadot_header(relayer_signer(), HeaderType::WithMessages));
 
-			// whitelisted relayer may submit regular Polkadot BH headers delivery transactions
 			assert_eq!(
 				BridgeHubPolkadotHeadersProvider::finalized_header_state_root(
 					bridge_hub_polkadot_header(HeaderType::WithMessages).hash()
 				),
 				None,
 			);
+
+			// Non-relayer may NOT submit Polkadot BH headers
+			// can't use assert_noop here, because we need to mutate storage inside
+			// the `construct_and_apply_extrinsic`
+			assert_eq!(
+				submit_polkadot_bridge_hub_header(non_relay_signer(), HeaderType::WithMessages),
+				Err(TransactionValidityError::Invalid(InvalidTransaction::BadSigner)),
+			);
+			assert_eq!(
+				BridgeHubPolkadotHeadersProvider::finalized_header_state_root(
+					bridge_hub_polkadot_header(HeaderType::WithMessages).hash()
+				),
+				None
+			);
+
+			// Relayer may submit Polkadot BH headers
 			assert_ok_ok(submit_polkadot_bridge_hub_header(
 				relayer_signer(),
 				HeaderType::WithMessages,
@@ -624,36 +586,8 @@ pub(crate) mod tests {
 	}
 
 	#[test]
-	fn non_relayer_may_not_submit_polkadot_bridge_hub_headers() {
+	fn only_relayer_may_deliver_messages_from_polkadot_bridge_hub() {
 		run_test(|| {
-			assert_ok_ok(initialize_polkadot_grandpa_pallet());
-
-			// whitelisted relayer may NOT submit regular Polkadot BH headers delivery transactions
-			assert_eq!(
-				BridgeHubPolkadotHeadersProvider::finalized_header_state_root(
-					bridge_hub_polkadot_header(HeaderType::WithMessages).hash()
-				),
-				None,
-			);
-			// can't use assert_noop here, because we need to mutate storage inside
-			// the `construct_and_apply_extrinsic`
-			assert_eq!(
-				submit_polkadot_bridge_hub_header(relayer_signer(), HeaderType::WithMessages),
-				Err(TransactionValidityError::Invalid(InvalidTransaction::BadSigner)),
-			);
-			assert_eq!(
-				BridgeHubPolkadotHeadersProvider::finalized_header_state_root(
-					bridge_hub_polkadot_header(HeaderType::WithMessages).hash()
-				),
-				None
-			);
-		})
-	}
-
-	#[test]
-	fn whitelisted_relayer_may_deliver_messages_from_polkadot_bridge_hub() {
-		run_test(|| {
-			WhitelistedRelayers::set(&vec![relayer_signer().into()]);
 			assert_ok_ok(initialize_polkadot_grandpa_pallet());
 			assert_ok_ok(submit_polkadot_header(relayer_signer(), HeaderType::WithMessages));
 			assert_ok_ok(submit_polkadot_bridge_hub_header(
@@ -661,38 +595,24 @@ pub(crate) mod tests {
 				HeaderType::WithMessages,
 			));
 
-			// whitelisted relayer may deliver messages from Polkadot BH
 			assert!(BridgePolkadotMessages::inbound_lane_data(XCM_LANE).relayers.is_empty());
+
+			// Non-relayer may NOT deliver messages from Polkadot BH
+			assert_eq!(
+				submit_messages_from_polkadot_bridge_hub(non_relay_signer()),
+				Err(TransactionValidityError::Invalid(InvalidTransaction::BadSigner)),
+			);
+			assert!(BridgePolkadotMessages::inbound_lane_data(XCM_LANE).relayers.is_empty());
+
+			// Relayer may deliver messages from Polkadot BH
 			assert_ok_ok(submit_messages_from_polkadot_bridge_hub(relayer_signer()));
 			assert!(!BridgePolkadotMessages::inbound_lane_data(XCM_LANE).relayers.is_empty());
 		})
 	}
 
 	#[test]
-	fn non_relayer_may_not_deliver_messages_from_polkadot_bridge_hub() {
+	fn only_relayer_may_deliver_confirmations_from_polkadot_bridge_hub() {
 		run_test(|| {
-			WhitelistedRelayers::set(&vec![relayer_signer().into()]);
-			assert_ok_ok(initialize_polkadot_grandpa_pallet());
-			assert_ok_ok(submit_polkadot_header(relayer_signer(), HeaderType::WithMessages));
-			assert_ok_ok(submit_polkadot_bridge_hub_header(
-				relayer_signer(),
-				HeaderType::WithMessages,
-			));
-
-			// non relayer may NOT deliver messages from Polkadot BH
-			assert!(BridgePolkadotMessages::inbound_lane_data(XCM_LANE).relayers.is_empty());
-			assert_eq!(
-				submit_messages_from_polkadot_bridge_hub(non_relay_signer()),
-				Err(TransactionValidityError::Invalid(InvalidTransaction::BadSigner)),
-			);
-			assert!(BridgePolkadotMessages::inbound_lane_data(XCM_LANE).relayers.is_empty());
-		})
-	}
-
-	#[test]
-	fn whitelisted_relayer_may_deliver_confirmations_from_polkadot_bridge_hub() {
-		run_test(|| {
-			WhitelistedRelayers::set(&vec![relayer_signer().into()]);
 			assert_ok_ok(initialize_polkadot_grandpa_pallet());
 			assert_ok_ok(submit_polkadot_header(
 				relayer_signer(),
@@ -704,44 +624,24 @@ pub(crate) mod tests {
 			));
 			emulate_sent_messages();
 
-			// whitelisted relayer may deliver messages from Polkadot BH
 			assert_eq!(
 				BridgePolkadotMessages::outbound_lane_data(XCM_LANE).latest_received_nonce,
 				0
 			);
-			assert_ok_ok(submit_confirmations_from_polkadot_bridge_hub(relayer_signer()));
-			assert_ne!(
-				BridgePolkadotMessages::outbound_lane_data(XCM_LANE).latest_received_nonce,
-				0
-			);
-		})
-	}
 
-	#[test]
-	fn non_relayer_may_not_deliver_confirmations_from_polkadot_bridge_hub() {
-		run_test(|| {
-			WhitelistedRelayers::set(&vec![relayer_signer().into()]);
-			assert_ok_ok(initialize_polkadot_grandpa_pallet());
-			assert_ok_ok(submit_polkadot_header(
-				relayer_signer(),
-				HeaderType::WithDeliveredMessages,
-			));
-			assert_ok_ok(submit_polkadot_bridge_hub_header(
-				relayer_signer(),
-				HeaderType::WithDeliveredMessages,
-			));
-			emulate_sent_messages();
-
-			// non relayer may NOT deliver messages from Polkadot BH
-			assert_eq!(
-				BridgePolkadotMessages::outbound_lane_data(XCM_LANE).latest_received_nonce,
-				0
-			);
+			// Non-relayer may NOT deliver confirmations from Polkadot BH
 			assert_eq!(
 				submit_confirmations_from_polkadot_bridge_hub(non_relay_signer()),
 				Err(TransactionValidityError::Invalid(InvalidTransaction::BadSigner)),
 			);
 			assert_eq!(
+				BridgePolkadotMessages::outbound_lane_data(XCM_LANE).latest_received_nonce,
+				0
+			);
+
+			// Relayer may deliver confirmations from Polkadot BH
+			assert_ok_ok(submit_confirmations_from_polkadot_bridge_hub(relayer_signer()));
+			assert_ne!(
 				BridgePolkadotMessages::outbound_lane_data(XCM_LANE).latest_received_nonce,
 				0
 			);

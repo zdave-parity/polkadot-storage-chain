@@ -21,13 +21,13 @@ use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{
 		AccountIdLookup, BlakeTwo256, Block as BlockT, ConvertInto, DispatchInfoOf,
-		IdentifyAccount, NumberFor, OpaqueKeys, SignedExtension, Verify,
+		IdentifyAccount, NumberFor, OpaqueKeys, PostDispatchInfoOf, SignedExtension, Verify,
 	},
 	transaction_validity::{
 		InvalidTransaction, TransactionLongevity, TransactionPriority, TransactionSource,
 		TransactionValidity, TransactionValidityError, ValidTransaction,
 	},
-	ApplyExtrinsicResult, MultiSignature,
+	ApplyExtrinsicResult, DispatchResult, MultiSignature,
 };
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
@@ -197,6 +197,10 @@ parameter_types! {
 	pub const SetKeysCooldownBlocks: BlockNumber = 5 * MINUTES;
 	pub const SetPurgeKeysPriority: TransactionPriority = SudoPriority::get() - 1;
 	pub const SetPurgeKeysLongevity: TransactionLongevity = HOURS as TransactionLongevity;
+
+	pub const BridgeTxFailCooldownBlocks: BlockNumber = 5 * MINUTES;
+	pub const BridgeTxPriority: TransactionPriority = StoreRenewPriority::get() - 1;
+	pub const BridgeTxLongevity: TransactionLongevity = HOURS as TransactionLongevity;
 }
 
 // Configure FRAME pallets to include in runtime.
@@ -360,6 +364,13 @@ impl pallet_transaction_storage::Config for Runtime {
 	type RemoveExpiredAuthorizationLongevity = RemoveExpiredAuthorizationLongevity;
 }
 
+impl pallet_relayer_set::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = pallet_relayer_set::weights::SubstrateWeight<Runtime>;
+	type AddRemoveOrigin = EnsureRoot<AccountId>;
+	type BridgeTxFailCooldownBlocks = BridgeTxFailCooldownBlocks;
+}
+
 impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
 where
 	RuntimeCall: From<C>,
@@ -386,6 +397,7 @@ construct_runtime!(
 		Sudo: pallet_sudo,
 		TransactionStorage: pallet_transaction_storage,
 		// Bridge pallets
+		RelayerSet: pallet_relayer_set,
 		BridgePolkadotGrandpa: pallet_bridge_grandpa,
 		BridgePolkadotParachains: pallet_bridge_parachains,
 		BridgePolkadotMessages: pallet_bridge_messages,
@@ -442,7 +454,8 @@ impl SignedExtension for ValidateSigned {
 	type AccountId = AccountId;
 	type Call = RuntimeCall;
 	type AdditionalSigned = ();
-	type Pre = ();
+	/// `Some(who)` if the transaction is a bridge transaction.
+	type Pre = Option<AccountId>;
 
 	const IDENTIFIER: &'static str = "ValidateSigned";
 
@@ -459,11 +472,12 @@ impl SignedExtension for ValidateSigned {
 	) -> Result<Self::Pre, TransactionValidityError> {
 		match call {
 			Self::Call::TransactionStorage(call) =>
-				TransactionStorage::pre_dispatch_signed(who, call),
-			Self::Call::Sudo(_) => validate_sudo(who).map(|_| ()),
+				TransactionStorage::pre_dispatch_signed(who, call).map(|()| None),
+			Self::Call::Sudo(_) => validate_sudo(who).map(|_| None),
 			Self::Call::Session(SessionCall::set_keys { .. }) =>
-				ValidatorSet::pre_dispatch_set_keys(who),
-			Self::Call::Session(SessionCall::purge_keys {}) => validate_purge_keys(who).map(|_| ()),
+				ValidatorSet::pre_dispatch_set_keys(who).map(|()| None),
+			Self::Call::Session(SessionCall::purge_keys {}) =>
+				validate_purge_keys(who).map(|_| None),
 			Self::Call::BridgePolkadotGrandpa(BridgeGrandpaCall::submit_finality_proof {
 				..
 			}) |
@@ -475,7 +489,7 @@ impl SignedExtension for ValidateSigned {
 			}) |
 			Self::Call::BridgePolkadotMessages(
 				BridgeMessagesCall::receive_messages_delivery_proof { .. },
-			) => bridge_config::ensure_whitelisted_relayer(who).map(|_| ()),
+			) => RelayerSet::validate_bridge_tx(who).map(|()| Some(who.clone())),
 			_ => Err(InvalidTransaction::Call.into()),
 		}
 	}
@@ -491,7 +505,7 @@ impl SignedExtension for ValidateSigned {
 			Self::Call::TransactionStorage(call) => TransactionStorage::validate_signed(who, call),
 			Self::Call::Sudo(_) => validate_sudo(who),
 			Self::Call::Session(SessionCall::set_keys { .. }) =>
-				ValidatorSet::validate_set_keys(who).map(|_| ValidTransaction {
+				ValidatorSet::validate_set_keys(who).map(|()| ValidTransaction {
 					priority: SetPurgeKeysPriority::get(),
 					longevity: SetPurgeKeysLongevity::get(),
 					..Default::default()
@@ -508,9 +522,28 @@ impl SignedExtension for ValidateSigned {
 			}) |
 			Self::Call::BridgePolkadotMessages(
 				BridgeMessagesCall::receive_messages_delivery_proof { .. },
-			) => bridge_config::ensure_whitelisted_relayer(who),
+			) => RelayerSet::validate_bridge_tx(who).map(|()| ValidTransaction {
+				priority: BridgeTxPriority::get(),
+				longevity: BridgeTxLongevity::get(),
+				..Default::default()
+			}),
 			_ => Err(InvalidTransaction::Call.into()),
 		}
+	}
+
+	fn post_dispatch(
+		pre: Option<Self::Pre>,
+		_info: &DispatchInfoOf<Self::Call>,
+		_post_info: &PostDispatchInfoOf<Self::Call>,
+		_len: usize,
+		result: &DispatchResult,
+	) -> Result<(), TransactionValidityError> {
+		if result.is_err() {
+			if let Some(Some(who)) = pre {
+				RelayerSet::post_dispatch_failed_bridge_tx(&who);
+			}
+		}
+		Ok(())
 	}
 }
 
@@ -566,6 +599,7 @@ mod benches {
 		[pallet_sudo, Sudo]
 		[pallet_transaction_storage, TransactionStorage]
 		[pallet_validator_set, ValidatorSet]
+		[pallet_relayer_set, RelayerSet]
 	);
 }
 
