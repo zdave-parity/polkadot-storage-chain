@@ -379,28 +379,33 @@ where
 	type OverarchingCall = RuntimeCall;
 }
 
-// Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub struct Runtime {
-		System: frame_system,
-		Babe: pallet_babe,
-		Timestamp: pallet_timestamp,
+		System: frame_system::{Pallet, Call, Storage, Config<T>, Event<T>} = 0,
+		// Babe must be called before Session
+		Babe: pallet_babe::{Pallet, Call, Storage, Config<T>, ValidateUnsigned} = 1,
+		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 2,
 		// Authorship must be before session in order to note author in the correct session for
 		// im-online.
-		Authorship: pallet_authorship,
-		Offences: pallet_offences,
-		Historical: pallet_session::historical,
-		ValidatorSet: pallet_validator_set,
-		Session: pallet_session,
-		ImOnline: pallet_im_online,
-		Grandpa: pallet_grandpa,
-		Sudo: pallet_sudo,
-		TransactionStorage: pallet_transaction_storage,
-		// Bridge pallets
-		RelayerSet: pallet_relayer_set,
-		BridgePolkadotGrandpa: pallet_bridge_grandpa,
-		BridgePolkadotParachains: pallet_bridge_parachains,
-		BridgePolkadotMessages: pallet_bridge_messages,
+		Authorship: pallet_authorship::{Pallet, Storage} = 10,
+		Offences: pallet_offences::{Pallet, Storage, Event} = 11,
+		Historical: pallet_session::historical::{Pallet} = 12,
+		ValidatorSet: pallet_validator_set::{Pallet, Storage, Event<T>, Config<T>} = 13,
+		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>} = 14,
+		ImOnline: pallet_im_online::{Pallet, Call, Storage, Event<T>, ValidateUnsigned, Config<T>} = 15,
+		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config<T>, Event, ValidateUnsigned} = 16,
+
+		// Storage
+		TransactionStorage: pallet_transaction_storage::{Pallet, Call, Storage, Event<T>} = 40,
+
+		// Bridge
+		RelayerSet: pallet_relayer_set::{Pallet, Storage, Event<T>, Config<T>} = 50,
+		BridgePolkadotGrandpa: pallet_bridge_grandpa::{Pallet, Call, Storage, Event<T>, Config<T>} = 51,
+		BridgePolkadotParachains: pallet_bridge_parachains::{Pallet, Call, Storage, Event<T>, Config<T>} = 52,
+		BridgePolkadotMessages: pallet_bridge_messages::{Pallet, Call, Storage, Event<T>, Config<T>} = 53,
+
+		// sudo
+		Sudo: pallet_sudo::{Pallet, Call, Storage, Event<T>, Config<T>} = 255,
 	}
 );
 
